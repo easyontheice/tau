@@ -1,6 +1,6 @@
 {
   "name": "tau",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Tau is an infinitely zoomable vertical timeline plugin for Obsidian with free 2D movement, orthogonal tethers, spans, eras, regions, time measurement, and rich note inspectors.",
   "main": "main.js",
   "scripts": {

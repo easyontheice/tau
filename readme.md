@@ -1,5 +1,5 @@
-## Support the Engine
-Tau is free, but my rent is not 🙄. If this plugin saved you from wrestling with raw YAML for six hours, consider buying me a coffee. 
+## tau
+tau is free, but my rent is not 🙄. If this plugin saved you from wrestling with raw YAML for six hours, consider buying me a coffee. 
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/easyontheice)
 

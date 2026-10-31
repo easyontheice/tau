@@ -84,15 +84,15 @@ Content written here is completely preserved. Double-clicking this node on the t
 | `coordinates` | String | `""` | Geographic `latitude, longitude` coordinates for spatial mapping. |
 | `horizontal-offset` | Integer | `0` | X-axis pixel displacement relative to the spine. |
 | `vertical-offset` | Integer | `0` | Y-axis pixel displacement relative to the true date coordinate. |
-| `span-width` | Integer | *Dynamic* | Manual width override for ribbons and background columns. |
-| `span-height-offset` | Integer | `0` | Extends ribbon start/end bounds independently of dates. |
+| `span-width` | Integer | *Dynamic* | Manual width override for ribbons and background columns. With span auto-fit on, acts as the minimum ribbon width. |
+| `span-height-offset` | Integer | `0` | Extends ribbon start/end bounds independently of dates. With span auto-fit on, ribbons also grow on their own to fit their label. |
 | `global-event` | Boolean | `false` | Renders a full-bleed horizontal dividing line across the entire viewport. |
-| `successor` | String | `""` | Fuses the node into a single dynastic lane with the target node. |
+| `successor` | String or list | `""` | Fuses the node into a dynastic lane with the target node. List several titles to split the lane: the successors share the predecessor's width equally, left to right in the order listed. |
 | `child-of` | String | `""` | Targets a parent node for a cubic Bezier S-curve link. |
 | `branch-to` | List | `[]` | Targets one or more nodes for orthogonal subway-style divergence. |
 | `influence-to` | List | `[]` | Targets one or more nodes for dashed directional influence vectors. |
 | `measure-to` | String | `""` | Draws an interactive measurement line calculating temporal distance. |
-| `image` | String | `""` | Obsidian link (`[[image.png]]`) or vault path to render inline artwork. |
+| `image` | String | `""` | Obsidian link (`[[image.png]]`), embed (`![[image.png]]`) or vault path to render inline artwork. On events and notes the image replaces the node entirely (no dot, anchor line, title or date) and is centred on the node's position; on spans it sits above the ribbon. Images are clickable and drag with their node. |
 | `image-width` | Integer | `100` | Rendered pixel width of the inline image artifact. |
 
 ---
@@ -117,7 +117,7 @@ Tau adapts its rendering pipelines based on the semantic role of the note:
 Unlike traditional timeline tools that collapse overlapping dates into illegible stacks, Tau gives you complete manual control over node placement.
 
 * **Direct Canvas Manipulation:** Click and drag any node or cluster. When you release the pointer, Tau writes the exact pixel offset directly into your frontmatter (`horizontal-offset` and `vertical-offset`).
-* **Auto-Scatter:** Right-click anywhere and trigger **Auto-Scatter All Events**. The engine calculates chronological spacing and programmatically disperses all floating events horizontally across 50 lanes between `X: 20` and `X: 1000` with staggered vertical offsets, eliminating visual pileups in a single pass.
+* **Auto-Scatter:** Right-click anywhere and trigger **Auto-scatter all events**. The engine calculates chronological spacing and programmatically disperses all floating events horizontally across 50 lanes between `X: 20` and `X: 1000` with staggered vertical offsets, eliminating visual pileups in a single pass.
 
 ### 2. Advanced Lineage, Topology & Linking
 
@@ -137,7 +137,7 @@ Tau is a relational network graph mapped onto chronological space:
 
 When displaying successive dynasties in the left legend (`span-left`), chronological overlaps frequently occur during wars of succession, civil fragmentation, or assimilation periods.
 
-* **Lineage Chaining:** Specifying a `successor` forces the engine to bypass normal collision separation. Tau locks the successor into the *exact same horizontal column* as the predecessor.
+* **Lineage Chaining:** Specifying a `successor` forces the engine to bypass normal collision separation. Tau locks the successor into the *exact same horizontal column* as the predecessor. With several successors (a YAML list), that column is divided equally between them, left to right in the order listed, and each gets its own hatched transition slice.
 * **Hatched Integration Zones:** Where Empire A and its `successor` Empire B overlap in time, Tau generates an intersection clipping mask filled with a **45-degree dual-color hatching pattern**, blending the primary hues of both civilizations to represent the transition of power.
 
 ### 4. Dual-Modal Interface: Reading vs. Authoring
@@ -145,14 +145,14 @@ When displaying successive dynasties in the left legend (`span-left`), chronolog
 Tau keeps viewing and editing strictly decoupled to avoid cognitive friction:
 
 * **The Reader (Double-Click):** Double-clicking any node opens the native **Inspector Panel**. It strips out frontmatter completely and uses Obsidian's Markdown engine to display rendered text, links, tasks, and embedded images.
-* **The Author (Right-Click → Edit Node Properties):** Opens the **Master Editor HUD**. This unified modal maps every visual and relational attribute to native inputs, dropdowns, and color pickers. Saving updates the note's frontmatter and automatically sanitizes/renames the markdown file to match your new title with collision detection.
+* **The Author (Right-Click → Edit node properties):** Opens the **Master Editor HUD**. This unified modal maps every visual and relational attribute to native inputs, dropdowns, and color pickers. Saving updates the note's frontmatter and automatically sanitizes/renames the markdown file to match your new title with collision detection.
 
 ### 5. Power User Tools
 
-* **The Clutter Filter:** Assign an `importance` integer to your nodes. Setting `importance: -1` flags an item as low-priority. Toggle **Hide Minor Nodes** from the context menu to clear minor events from the canvas while preserving your macro-historical timeline.
+* **The Clutter Filter:** Assign an `importance` integer to your nodes. Setting `importance: -1` flags an item as low-priority. Toggle **Hide minor nodes** from the context menu to clear minor events from the canvas while preserving your macro-historical timeline.
 * **Shift-Drag Lasso Selection:** Hold `Shift` and drag across the canvas to draw an area bounding box. All enclosed nodes are multi-selected, allowing you to reposition entire historical eras as a unified group or trigger batch deletions.
 * **Intelligent Sticky Headers:** For long spans (`span` and `span-left`) that stretch beyond the screen height, the title text automatically slides along the ribbon and pins itself near the viewport boundary, guaranteeing label visibility during vertical scrolling.
-* **Horizontal Raycast Alignment:** Right-click an event, select **Align Horizontally To...**, and click any other node on the board. The source event immediately snaps to the target's horizontal coordinate lane.
+* **Horizontal Raycast Alignment:** Right-click an event, select **Align horizontally to...**, and click any other node on the board. The source event immediately snaps to the target's horizontal coordinate lane.
 
 ---
 
@@ -162,20 +162,24 @@ Right-click anywhere on the canvas or directly on a node to access the command H
 
 | Menu Item | Target | Description |
 | --- | --- | --- |
-| **Edit Node Properties** | Node | Opens the Master Editor HUD for full YAML configuration. |
-| **Open Markdown File** | Node | Opens the source `.md` file in an Obsidian workspace tab. |
-| **Delete Node(s)** | Node | Moves the selected node (or multi-selected group) directly to the trash. |
-| **Align Horizontally To...** | Node | Raycasts to a clicked target and snaps the current node to its X-coordinate. |
-| **Succeeded by...** | Node | Raycasts to assign a dynastic successor for lane-sharing and hatched assimilation. |
+| **Edit node properties** | Node | Opens the Master Editor HUD for full YAML configuration. |
+| **Open Markdown file** | Node | Opens the source `.md` file in an Obsidian workspace tab. |
+| **Assign image... / Change image...** | Node | Pick any image in your vault; it is saved to the `image` property and drawn on the timeline. |
+| **Set image width...** | Node | Sets `image-width` in pixels (blank resets to 100). Shown when the node has an image. |
+| **Remove image** | Node | Clears `image` and `image-width`. Shown when the node has an image. |
+| **Delete node(s)** | Node | Moves the selected node (or multi-selected group) to the trash, following your Obsidian "Deleted files" setting. |
+| **Align horizontally to...** | Node | Raycasts to a clicked target and snaps the current node to its X-coordinate. |
+| **Succeeded by...** | Node | Raycasts to add a dynastic successor for lane-sharing and hatched assimilation. Repeat to split the lane between several successors; pick an existing successor again to remove it. |
 | **Child of...** | Node | Raycasts to create a Bezier S-curve from a parent node. |
 | **Branch to...** | Node | Raycasts to generate an orthogonal subway divergence line. |
 | **Influence to...** | Node | Raycasts to establish a dashed directional vector arrow. |
 | **Measure to...** | Node | Raycasts to calculate and display real-time chronological distances. |
-| **New Node** | Canvas | Generates a blank note template and opens the Master Editor HUD. |
-| **Set Left Strip Width** | Canvas | Adjusts the pixel width of the left dynastic legend (set to `0` to hide). |
-| **Auto-Scatter All Events** | Canvas | Automatically disperses overlapping events into clean, readable lanes. |
-| **Toggle Minor Nodes** | Canvas | Hides or reveals all nodes with `importance < 0`. |
-| **Toggle Visibility Toggles** | Canvas | Independent display switches for Titles, Event Dates, Span Dates, Left-Span Dates, Gridlines, and Anchor Spines. |
+| **New node** | Canvas | Generates a blank note template and opens the Master Editor HUD. |
+| **Set left strip width** | Canvas | Adjusts the pixel width of the left dynastic legend (set to `0` to hide). |
+| **Auto-scatter all events** | Canvas | Automatically disperses overlapping events into clean, readable lanes. |
+| **Show/hide minor nodes** | Canvas | Hides or reveals all nodes with `importance < 0`. |
+| **Show/hide display toggles** | Canvas | Independent display switches for titles, event dates, span dates, left-span dates, gridlines, and anchor spines. |
+| **Enable/disable span auto-fit** | Canvas | When on (default), world span ribbons grow so their title and dates always fit inside. `span-width` and `span-height-offset` still act as the minimum size. Remembered per vault. |
 
 ---
 

@@ -1,4 +1,4 @@
-import { App, ItemView, Plugin, WorkspaceLeaf, Menu, Notice, Modal, Setting, TFile } from "obsidian";
+import { App, ItemView, Plugin, WorkspaceLeaf, Menu, Notice, Modal, Setting, TFile, FuzzySuggestModal, debounce } from "obsidian";
 import { VaultAdapter, TimelineNode } from "./vault-adapter";
 import { TimelineCanvasRenderer, ViewportState } from "./timeline-canvas";
 import { NodeInspectorModal } from "./inspector";
@@ -22,19 +22,19 @@ export default class tauPlugin extends Plugin {
     });
 
     this.addCommand({
-      id: "open-tau-timeline",
-      name: "Open Tau",
+      id: "open-timeline",
+      name: "Open timeline",
       callback: () => {
         void this.activateView();
       },
     });
 
     this.addCommand({
-      id: "tau-import-csv",
-      name: "Import Timeline Nodes from CSV",
+      id: "import-csv",
+      name: "Import timeline nodes from CSV",
       callback: () => {
         const leaves = this.app.workspace.getLeavesOfType(TIMELINE_VIEW_TYPE);
-        const view = leaves[0]?.view as tauTimelineView | undefined;
+        const view = leaves[0]?.view instanceof tauTimelineView ? leaves[0].view : undefined;
         new CsvImportModal(this.app, async () => {
           if (view) {
             await view.reloadNodes();
@@ -54,7 +54,7 @@ export default class tauPlugin extends Plugin {
       leaf = newLeaf;
     }
 
-    workspace.revealLeaf(leaf);
+    await workspace.revealLeaf(leaf);
   }
 }
 
@@ -84,12 +84,16 @@ export class tauTimelineView extends ItemView {
     return TIMELINE_VIEW_TYPE;
   }
 
+  getIcon(): string {
+    return "history";
+  }
+
   getDisplayText(): string {
-    return "τ";
+    return "Tau";
   }
 
   async onOpen(): Promise<void> {
-    const container = this.containerEl.children[1] as HTMLElement;
+    const container = this.contentEl;
     container.empty();
     container.addClass("tau-view-container");
 
@@ -97,10 +101,12 @@ export class tauTimelineView extends ItemView {
     const ctx = this.canvas.getContext("2d")!;
 
     this.renderer = new TimelineCanvasRenderer(this.canvas, ctx, this.viewport, this.nodes);
+    this.renderer.leftStripWidth = parseInt(String(this.app.loadLocalStorage("tau-left-width") || "200"));
+    this.renderer.autoFitSpans = this.app.loadLocalStorage("tau-auto-fit-spans") !== "false";
     
     await this.reloadNodes();
 
-    this.canvas.addEventListener("wheel", (e: WheelEvent) => {
+    this.registerDomEvent(this.canvas, "wheel", (e: WheelEvent) => {
       e.preventDefault(); 
       if (e.ctrlKey || e.metaKey) {
         const ratio = e.offsetY / this.canvas.clientHeight;
@@ -127,7 +133,7 @@ export class tauTimelineView extends ItemView {
 
       if (hit && !hit.isPhantom) { 
         menu.addItem((item) => {
-          item.setTitle("Edit Node Properties").setIcon("settings").onClick(() => {
+          item.setTitle("Edit node properties").setIcon("settings").onClick(() => {
             new NodeEditorModal(this.app, hit, () => {
                void this.reloadNodes();
             }).open();
@@ -135,27 +141,68 @@ export class tauTimelineView extends ItemView {
         });
 
         menu.addItem((item) => {
-          item.setTitle("Open Markdown File").setIcon("file-text").onClick(() => {
+          item.setTitle("Open Markdown file").setIcon("file-text").onClick(() => {
             void this.app.workspace.getLeaf("tab").openFile(hit.file);
           });
         });
+
+        menu.addItem((item) => {
+          item.setTitle(hit.imageUrl ? "Change image..." : "Assign image...").setIcon("image").onClick(() => {
+            new ImageSuggestModal(this.app, (imageFile) => {
+              const link = this.app.metadataCache.fileToLinktext(imageFile, hit.file.path, false);
+              void this.app.fileManager.processFrontMatter(hit.file, (fm) => {
+                fm["image"] = `[[${link}]]`;
+              });
+              new Notice(`Image assigned to ${hit.title}`);
+            }).open();
+          });
+        });
+
+        if (hit.imageUrl) {
+          menu.addItem((item) => {
+            item.setTitle("Set image width...").setIcon("move-horizontal").onClick(() => {
+              const current = String(hit.imageWidth ?? 100);
+              new TextInputModal(this.app, "Set image width", "Width in pixels (default 100). Leave blank to reset.", current, (val) => {
+                const trimmed = val.trim();
+                const num = parseInt(trimmed);
+                if (trimmed !== "" && (isNaN(num) || num <= 0)) {
+                  new Notice("Please enter a positive number of pixels.");
+                  return;
+                }
+                void this.app.fileManager.processFrontMatter(hit.file, (fm) => {
+                  if (trimmed === "") delete fm["image-width"];
+                  else fm["image-width"] = num;
+                });
+              }).open();
+            });
+          });
+
+          menu.addItem((item) => {
+            item.setTitle("Remove image").setIcon("image-off").onClick(() => {
+              void this.app.fileManager.processFrontMatter(hit.file, (fm) => {
+                delete fm["image"];
+                delete fm["image-width"];
+              });
+            });
+          });
+        }
         
         menu.addSeparator();
 
         menu.addItem((item) => {
           const isMulti = this.renderer.selectedNodeIds.has(hit.id) && this.renderer.selectedNodeIds.size > 1;
-          item.setTitle(isMulti ? `Delete ${this.renderer.selectedNodeIds.size} Nodes` : "Delete Node")
+          item.setTitle(isMulti ? `Delete ${this.renderer.selectedNodeIds.size} nodes` : "Delete node")
               .setIcon("trash")
               .onClick(async () => {
                 if (isMulti) {
                   for (const id of this.renderer.selectedNodeIds) {
                     const nodeToDelete = this.nodes.find(n => n.id === id);
-                    if (nodeToDelete) await this.app.vault.trash(nodeToDelete.file, true);
+                    if (nodeToDelete) await this.app.fileManager.trashFile(nodeToDelete.file);
                   }
                   new Notice(`Vaporized ${this.renderer.selectedNodeIds.size} nodes.`);
                   this.renderer.selectedNodeIds.clear();
                 } else {
-                  await this.app.vault.trash(hit.file, true);
+                  await this.app.fileManager.trashFile(hit.file);
                   new Notice(`Vaporized ${hit.title}`);
                 }
                 void this.reloadNodes();
@@ -165,7 +212,7 @@ export class tauTimelineView extends ItemView {
         menu.addSeparator();
 
         menu.addItem((item) => {
-          item.setTitle("Align Horizontally To...").setIcon("align-center").onClick(() => {
+          item.setTitle("Align horizontally to...").setIcon("align-center").onClick(() => {
             this.pendingAlignNode = hit;
             new Notice("Click on a target node to align horizontally.");
           });
@@ -174,14 +221,14 @@ export class tauTimelineView extends ItemView {
         menu.addItem((item) => {
           item.setTitle("Succeeded by...").setIcon("arrow-right-circle").onClick(() => {
             this.pendingSuccessorNode = hit;
-            new Notice("Click on the successor node.");
+            new Notice("Click a node to add it as a successor (click an existing successor to remove it).");
           });
         });
 
         menu.addItem((item) => {
           item.setTitle("Child of...").setIcon("link").onClick(() => {
             this.pendingChildNode = hit;
-            new Notice("Click on a node to set it as the S-Curve parent.");
+            new Notice("Click on a node to set it as the S-curve parent.");
           });
         });
 
@@ -208,7 +255,7 @@ export class tauTimelineView extends ItemView {
 
       } else {
         menu.addItem((item) => {
-          item.setTitle("New Node").setIcon("plus").onClick(async () => {
+          item.setTitle("New node").setIcon("plus").onClick(async () => {
              const safeName = `Tau-New_Event-${Date.now()}.md`;
              const newFile = await this.app.vault.create(
                 safeName, 
@@ -221,13 +268,13 @@ export class tauTimelineView extends ItemView {
         });
         
         menu.addItem((item) => {
-          item.setTitle("Set Left Strip Width").setIcon("panel-left").onClick(() => {
+          item.setTitle("Set left strip width").setIcon("panel-left").onClick(() => {
              const current = this.renderer.leftStripWidth.toString();
-             new TextInputModal(this.app, "Set Left Strip Width", "Enter pixel width (e.g., 200). Use 0 to hide.", current, (val) => {
+             new TextInputModal(this.app, "Set left strip width", "Enter pixel width (e.g., 200). Use 0 to hide.", current, (val) => {
                 const num = parseInt(val);
                 if (!isNaN(num) && num >= 0) {
                    this.renderer.leftStripWidth = num;
-                   localStorage.setItem("tau-left-width", num.toString());
+                   this.app.saveLocalStorage("tau-left-width", num.toString());
                    this.renderer.scheduleDraw();
                 }
              }).open();
@@ -235,7 +282,7 @@ export class tauTimelineView extends ItemView {
         });
 
         menu.addItem((item) => {
-          item.setTitle("Import Nodes from CSV...").setIcon("file-up").onClick(() => {
+          item.setTitle("Import nodes from CSV...").setIcon("file-up").onClick(() => {
             new CsvImportModal(this.app, async () => {
               await this.reloadNodes();
             }).open();
@@ -243,7 +290,7 @@ export class tauTimelineView extends ItemView {
         });
 
         menu.addItem((item) => {
-          item.setTitle("Auto-Scatter All Events").setIcon("list-restart").onClick(async () => {
+          item.setTitle("Auto-scatter all events").setIcon("list-restart").onClick(async () => {
             new Notice("Scattering timeline... Please wait.");
             
             const events = this.nodes
@@ -257,13 +304,17 @@ export class tauTimelineView extends ItemView {
 
             for (let i = 0; i < events.length; i++) {
               const node = events[i];
-              const predecessor = events.find(p => p.kind === "span" && (p.successor === node.title || p.successor === node.file.basename));
+              const predecessor = events.find(p => p.kind === "span" && (p.successors.includes(node.title) || p.successors.includes(node.file.basename)));
               
               let curX: number;
               let curY: number;
 
               if (predecessor && assignedLanes.has(predecessor.id)) {
-                curX = assignedLanes.get(predecessor.id)!;
+                // Split successors sit side by side across the predecessor's width
+                const siblings = predecessor.successors.length;
+                const index = Math.max(predecessor.successors.indexOf(node.title), predecessor.successors.indexOf(node.file.basename));
+                const slice = (predecessor.spanWidth ?? 28) / Math.max(1, siblings);
+                curX = assignedLanes.get(predecessor.id)! + (siblings > 1 ? Math.round((index - (siblings - 1) / 2) * slice) : 0);
                 curY = (i % 5) * 10;
               } else {
                 const lane = (i * skipX) % maxLanes;
@@ -282,11 +333,11 @@ export class tauTimelineView extends ItemView {
                 });
               }
 
-              if (i % 25 === 0 && i > 0) await new Promise(r => setTimeout(r, 10));
+              if (i % 25 === 0 && i > 0) await new Promise(r => window.setTimeout(r, 10));
             }
             
             this.renderer.scheduleDraw();
-            new Notice("Auto-Scatter Complete!");
+            new Notice("Auto-scatter complete!");
           });
         });
       }
@@ -294,50 +345,57 @@ export class tauTimelineView extends ItemView {
       menu.addSeparator();
 
       menu.addItem((item) => {
-        item.setTitle(this.renderer.showMinorNodes ? "Hide Minor Nodes (Importance < 0)" : "Show Minor Nodes").setIcon("eye-off").onClick(() => {
+        item.setTitle(this.renderer.showMinorNodes ? "Hide minor nodes (importance < 0)" : "Show minor nodes").setIcon("eye-off").onClick(() => {
           this.renderer.showMinorNodes = !this.renderer.showMinorNodes;
           this.renderer.scheduleDraw();
         });
       });
 
       menu.addItem((item) => {
-        item.setTitle(this.renderer.showTitles ? "Hide Titles" : "Show Titles").setIcon("type").onClick(() => {
+        item.setTitle(this.renderer.showTitles ? "Hide titles" : "Show titles").setIcon("type").onClick(() => {
           this.renderer.showTitles = !this.renderer.showTitles;
           this.renderer.scheduleDraw();
         });
       });
       menu.addItem((item) => {
-        item.setTitle(this.renderer.showEventDates ? "Hide Event Dates" : "Show Event Dates").setIcon("calendar").onClick(() => {
+        item.setTitle(this.renderer.showEventDates ? "Hide event dates" : "Show event dates").setIcon("calendar").onClick(() => {
           this.renderer.showEventDates = !this.renderer.showEventDates;
           this.renderer.scheduleDraw();
         });
       });
       menu.addItem((item) => {
-        item.setTitle(this.renderer.showLeftSpanDates ? "Hide Left Span Dates" : "Show Left Span Dates").setIcon("calendar").onClick(() => {
+        item.setTitle(this.renderer.showLeftSpanDates ? "Hide left span dates" : "Show left span dates").setIcon("calendar").onClick(() => {
           this.renderer.showLeftSpanDates = !this.renderer.showLeftSpanDates;
           this.renderer.scheduleDraw();
         });
       });
       menu.addItem((item) => {
-        item.setTitle(this.renderer.showSpanDates ? "Hide Span Dates" : "Show Span Dates").setIcon("calendar").onClick(() => {
+        item.setTitle(this.renderer.showSpanDates ? "Hide span dates" : "Show span dates").setIcon("calendar").onClick(() => {
           this.renderer.showSpanDates = !this.renderer.showSpanDates;
           this.renderer.scheduleDraw();
         });
       });
       menu.addItem((item) => {
-        item.setTitle(this.renderer.showGridlines ? "Hide Gridlines" : "Show Gridlines").setIcon("grid").onClick(() => {
+        item.setTitle(this.renderer.autoFitSpans ? "Disable span auto-fit" : "Enable span auto-fit").setIcon("maximize-2").onClick(() => {
+          this.renderer.autoFitSpans = !this.renderer.autoFitSpans;
+          this.app.saveLocalStorage("tau-auto-fit-spans", String(this.renderer.autoFitSpans));
+          this.renderer.scheduleDraw();
+        });
+      });
+      menu.addItem((item) => {
+        item.setTitle(this.renderer.showGridlines ? "Hide gridlines" : "Show gridlines").setIcon("grid").onClick(() => {
           this.renderer.showGridlines = !this.renderer.showGridlines;
           this.renderer.scheduleDraw();
         });
       });
       menu.addItem((item) => {
-        item.setTitle(this.renderer.showEventSpineLines ? "Hide Event Anchors" : "Show Event Anchors").setIcon("minus").onClick(() => {
+        item.setTitle(this.renderer.showEventSpineLines ? "Hide event anchors" : "Show event anchors").setIcon("minus").onClick(() => {
           this.renderer.showEventSpineLines = !this.renderer.showEventSpineLines;
           this.renderer.scheduleDraw();
         });
       });
       menu.addItem((item) => {
-        item.setTitle(this.renderer.showSpanSpineLines ? "Hide Span Anchors" : "Show Span Anchors").setIcon("minus").onClick(() => {
+        item.setTitle(this.renderer.showSpanSpineLines ? "Hide span anchors" : "Show span anchors").setIcon("minus").onClick(() => {
           this.renderer.showSpanSpineLines = !this.renderer.showSpanSpineLines;
           this.renderer.scheduleDraw();
         });
@@ -363,16 +421,21 @@ export class tauTimelineView extends ItemView {
 
       if (this.pendingSuccessorNode) {
         if (hit && !hit.isPhantom && hit.id !== this.pendingSuccessorNode.id) {
-          if (this.pendingSuccessorNode.kind === "span" && hit.kind === "span") {
-            hit.horizontalOffset = this.pendingSuccessorNode.horizontalOffset;
-            void this.app.fileManager.processFrontMatter(hit.file, (fm) => {
-              fm["horizontal-offset"] = this.pendingSuccessorNode!.horizontalOffset;
-            });
-          }
-          void this.app.fileManager.processFrontMatter(this.pendingSuccessorNode.file, (fm) => {
-            fm["successor"] = hit.title;
+          const predecessor = this.pendingSuccessorNode;
+          const isExisting = predecessor.successors.includes(hit.title) || predecessor.successors.includes(hit.file.basename);
+          const nextSuccessors = isExisting
+            ? predecessor.successors.filter(s => s !== hit.title && s !== hit.file.basename)
+            : [...predecessor.successors, hit.title];
+          predecessor.successors = nextSuccessors;
+
+          // World spans: line the successors up evenly across the predecessor's width
+          if (predecessor.kind === "span") this.layoutWorldSuccessors(predecessor);
+
+          void this.app.fileManager.processFrontMatter(predecessor.file, (fm) => {
+            if (nextSuccessors.length === 0) delete fm["successor"];
+            else fm["successor"] = nextSuccessors.length === 1 ? nextSuccessors[0] : nextSuccessors;
           });
-          new Notice(`Marked ${hit.title} as the successor!`);
+          new Notice(isExisting ? `Removed ${hit.title} as a successor.` : `Added ${hit.title} as a successor.`);
           this.renderer.scheduleDraw();
         } else {
           new Notice("Successor linking cancelled.");
@@ -560,9 +623,37 @@ export class tauTimelineView extends ItemView {
     this.resizeObserver = new ResizeObserver(() => this.renderer.resize());
     this.resizeObserver.observe(this.canvas);
 
-    this.registerEvent(this.app.metadataCache.on("changed", () => {
+    // Coalesce bursts of vault changes (multi-node drags, auto-scatter, external edits) into a
+    // single reload, and never swap the node array out from under an in-progress drag.
+    const requestReload: () => void = debounce(() => {
+      if (this.isDragging) {
+        requestReload();
+        return;
+      }
       void this.reloadNodes();
-    }));
+    }, 300, true);
+
+    this.registerEvent(this.app.metadataCache.on("changed", () => requestReload()));
+    this.registerEvent(this.app.vault.on("delete", () => requestReload()));
+    this.registerEvent(this.app.vault.on("rename", () => requestReload()));
+  }
+
+  /** Spreads a world span's successors evenly across its width (one successor = same lane, as before). */
+  private layoutWorldSuccessors(predecessor: TimelineNode): void {
+    const targets: TimelineNode[] = [];
+    for (const name of predecessor.successors) {
+      const target = this.nodes.find(n => n.title === name || n.file.basename === name);
+      if (target && target.kind === "span" && !target.isPhantom && target !== predecessor && !targets.includes(target)) targets.push(target);
+    }
+    const slice = (predecessor.spanWidth ?? 28) / Math.max(1, targets.length);
+    targets.forEach((target, index) => {
+      const offset = predecessor.horizontalOffset + (index - (targets.length - 1) / 2) * slice;
+      if (target.horizontalOffset === offset) return;
+      target.horizontalOffset = offset;
+      void this.app.fileManager.processFrontMatter(target.file, (fm) => {
+        fm["horizontal-offset"] = Math.round(offset);
+      });
+    });
   }
 
   async reloadNodes(): Promise<void> {
@@ -573,6 +664,27 @@ export class tauTimelineView extends ItemView {
 
   async onClose(): Promise<void> {
     this.resizeObserver?.disconnect();
+  }
+}
+
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+
+class ImageSuggestModal extends FuzzySuggestModal<TFile> {
+  constructor(app: App, private onChoose: (file: TFile) => void) {
+    super(app);
+    this.setPlaceholder("Choose an image from your vault...");
+  }
+
+  getItems(): TFile[] {
+    return this.app.vault.getFiles().filter((f) => IMAGE_EXTENSIONS.includes(f.extension.toLowerCase()));
+  }
+
+  getItemText(file: TFile): string {
+    return file.path;
+  }
+
+  onChooseItem(file: TFile): void {
+    this.onChoose(file);
   }
 }
 
@@ -638,24 +750,24 @@ class CsvImportModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createEl("h2", { text: "Import Nodes into Tau (τ)" });
+    contentEl.createEl("h2", { text: "Import nodes into Tau" });
     contentEl.createEl("p", {
       text: "Select a CSV file containing Tau schema columns. Existing notes with matching names will be safely updated without erasing note bodies.",
     });
 
     new Setting(contentEl)
-      .setName("Destination Folder")
+      .setName("Destination folder")
       .setDesc("Folder where new markdown files will be created")
       .addText((t) => {
         t.setValue(this.targetFolder).onChange((v) => (this.targetFolder = v.trim()));
       });
 
     new Setting(contentEl)
-      .setName("CSV File")
+      .setName("CSV file")
       .setDesc("Choose your .csv timeline dataset")
       .addButton((b) => {
-        b.setButtonText("Choose File").onClick(() => {
-          const input = document.createElement("input");
+        b.setButtonText("Choose file").onClick(() => {
+          const input = createEl("input");
           input.type = "file";
           input.accept = ".csv,text/csv";
           input.onchange = async () => {
@@ -672,7 +784,7 @@ class CsvImportModal extends Modal {
     new Setting(contentEl)
       .addButton((b) =>
         b
-          .setButtonText("Start Import")
+          .setButtonText("Start import")
           .setCta()
           .onClick(async () => {
             if (!this.fileContent) {
@@ -746,12 +858,12 @@ class CsvImportModal extends Modal {
 
     for (const r of records) {
       const title = r["title"] || "Untitled Node";
-      const safeName = title.replace(/[\/\\:*?"<>|]/g, "-").trim();
+      const safeName = title.replace(/[/\\:*?"<>|]/g, "-").trim();
       const filePath = folderPath ? `${folderPath}/${safeName}.md` : `${safeName}.md`;
 
       const existingFile = this.app.vault.getAbstractFileByPath(filePath);
 
-      const updateFm = (fm: Record<string, any>) => {
+      const updateFm = (fm: Record<string, unknown>) => {
         fm["timeline"] = r["timeline"] || "main";
         if (r["timeline-kind"]) fm["timeline-kind"] = r["timeline-kind"];
         if (r["start-date"]) fm["start-date"] = r["start-date"];
@@ -763,12 +875,16 @@ class CsvImportModal extends Modal {
         if (r["border-style"] && r["border-style"] !== "none") fm["border-style"] = r["border-style"];
         if (r["coordinates"]) fm["coordinates"] = r["coordinates"];
         if (r["child-of"]) fm["child-of"] = r["child-of"];
-        if (r["successor"]) fm["successor"] = r["successor"];
+        if (r["successor"]) {
+          const successors = r["successor"].split(",").map((s) => s.trim()).filter(Boolean);
+          fm["successor"] = successors.length === 1 ? successors[0] : successors;
+        }
+        if (r["image"]) fm["image"] = r["image"];
         if (r["measure-to"]) fm["measure-to"] = r["measure-to"];
 
         if (r["global-event"] === "true") fm["global-event"] = true;
 
-        const numKeys = ["importance", "horizontal-offset", "vertical-offset", "span-width", "span-height-offset"];
+        const numKeys = ["importance", "horizontal-offset", "vertical-offset", "span-width", "span-height-offset", "image-width"];
         numKeys.forEach((k) => {
           const val = parseFloat(r[k]);
           if (!isNaN(val) && (k !== "importance" || val !== 0)) fm[k] = val;

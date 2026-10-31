@@ -1,4 +1,4 @@
-import { App, TFile, Notice } from "obsidian";
+import { App, TFile, Notice, type FrontMatterCache } from "obsidian";
 import {
   normalizeHistoricalDate,
   historicalDateRange,
@@ -6,7 +6,6 @@ import {
   formatHistoricalDate,
   type HistoricalDate,
   type HistoricalDateInput,
-  type Calendar,
   type YearDesignation,
 } from "./historical-date";
 
@@ -25,7 +24,7 @@ export type TimelineNode = {
   spanWidth?: number;
   spanHeightOffset: number; 
   childOf: string | null;   
-  successor: string | null; // <-- NEW: Lineage Succession
+  successors: string[]; // Lineage succession: one or more nodes that follow/integrate this span
   branchTo: string[]; 
   influenceTo: string[]; 
   measureTo: string | null; 
@@ -41,7 +40,7 @@ export type TimelineNode = {
   description: string | null;
   startDateDisplay: string; 
   endDateDisplay: string | null; 
-  rawFrontmatter: Record<string, any>;
+  rawFrontmatter: FrontMatterCache;
   isPhantom?: boolean; 
   isGlobal: boolean; 
   importance: number; 
@@ -86,6 +85,22 @@ export function parseFrontmatterDate(input: unknown): HistoricalDate | undefined
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Normalises the `successor` property. Accepts a single title (the original format) or a YAML
+ * list of titles, with or without [[wikilink]] brackets / aliases. A plain string is never split,
+ * so titles that contain commas keep working.
+ */
+export function parseSuccessors(input: unknown): string[] {
+  const values: unknown[] = Array.isArray(input) ? input : [input];
+  const result: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string" && typeof value !== "number") continue;
+    const name = String(value).replace(/^\[\[|\]\]$/g, "").split("|")[0].trim();
+    if (name && !result.includes(name)) result.push(name);
+  }
+  return result;
 }
 
 export function parseTimeTravel(input: string): number | null {
@@ -165,9 +180,10 @@ export class VaultAdapter {
       }
 
       let imageUrl: string | null = null;
-      const rawImage = fm["image"];
-      if (typeof rawImage === "string") {
-        const cleanName = rawImage.replace(/[\[\]]/g, "").trim(); 
+      // Accept "file.png", "[[file.png]]", "![[file.png]]", "[[file.png|alias]]" or a list property
+      const rawImage: unknown = Array.isArray(fm["image"]) ? fm["image"][0] : fm["image"];
+      if (typeof rawImage === "string" && rawImage.trim()) {
+        const cleanName = rawImage.trim().replace(/^!/, "").replace(/[[\]]/g, "").split("|")[0].trim();
         const imgFile = this.app.metadataCache.getFirstLinkpathDest(cleanName, file.path);
         if (imgFile) {
           imageUrl = this.app.vault.getResourcePath(imgFile);
@@ -190,7 +206,7 @@ export class VaultAdapter {
           const firstBlock = bodyContent.split(/\n\s*\n/)[0];
           description = firstBlock
             .replace(/^#+\s+/g, "") 
-            .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1") 
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") 
             .replace(/[*_~`]/g, "")
             .trim()
             .substring(0, 300);
@@ -212,7 +228,7 @@ export class VaultAdapter {
         spanWidth: fm["span-width"] ? Number(fm["span-width"]) : undefined,
         spanHeightOffset: Number(fm["span-height-offset"] ?? 0), 
         childOf: fm["child-of"] ? String(fm["child-of"]) : null, 
-        successor: fm["successor"] ? String(fm["successor"]) : null, // <-- Parsed Property
+        successors: parseSuccessors(fm["successor"]),
         branchTo,
         influenceTo,
         measureTo: fm["measure-to"] ? String(fm["measure-to"]) : null, 
@@ -256,7 +272,7 @@ export class VaultAdapter {
             spanWidth: undefined,
             spanHeightOffset: 0,
             childOf: title, 
-            successor: null,
+            successors: [],
             branchTo: [],
             influenceTo: [],
             measureTo: null,

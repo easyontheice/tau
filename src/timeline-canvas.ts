@@ -1,5 +1,12 @@
 import { TimelineNode } from "./vault-adapter";
 
+// Breathing room kept between an auto-fitted span label and the edge of its box (screen px)
+const SPAN_LABEL_PADDING_ALONG = 10;
+const SPAN_LABEL_PADDING_ACROSS = 4;
+// Gap between the title lettering (baseline) and the date lettering (cap height) on spans (screen px)
+const SPAN_LABEL_LINE_GAP = 8;
+const SPAN_DATE_FONT_SIZE = 10;
+
 export type ViewportState = {
   viewStart: number;
   viewSpan: number;
@@ -19,13 +26,20 @@ export class TimelineCanvasRenderer {
   
   public showMinorNodes = true; 
 
-  public leftStripWidth = parseInt(localStorage.getItem("tau-left-width") || "200");
+  public leftStripWidth = 200; // Hydrated from vault-scoped storage by the view on open
+  public autoFitSpans = true;   // Grow world spans so their label always fits (hydrated by the view)
 
   private imageCache: Map<string, HTMLImageElement> = new Map(); 
-  private leftLayoutCache: Map<string, { col: number, numCols: number }> = new Map();
+  // subStart/subWidth: the slice of the column (0..1) a node occupies. 0/1 unless a predecessor split.
+  private leftLayoutCache: Map<string, { col: number, numCols: number, subStart: number, subWidth: number }> = new Map();
 
   public selectedNodeIds: Set<string> = new Set();
   public selectionBox: { x: number, y: number, w: number, h: number } | null = null;
+
+  // Screen rects of images drawn this frame, so clicking an image selects/drags its node
+  private imageHitRects: Map<string, { x: number, y: number, w: number, h: number }> = new Map();
+  private letterMetricsCache: Map<string, { capAbove: number, baseBelow: number }> = new Map();
+  private brokenImages: Set<string> = new Set();
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -95,7 +109,8 @@ export class TimelineCanvasRenderer {
     const img = new Image();
     img.src = url;
     this.imageCache.set(url, img);
-    img.onload = () => this.scheduleDraw(); 
+    img.onload = () => this.scheduleDraw();
+    img.onerror = () => { this.brokenImages.add(url); this.scheduleDraw(); }; 
     return null;
   }
 
@@ -114,6 +129,7 @@ export class TimelineCanvasRenderer {
     }
 
     const handled = new Set<string>();
+    const fractions = new Map<string, { start: number, width: number }>();
     const chains: { nodes: TimelineNode[], start: number, end: number }[] = [];
 
     for (const node of leftSpans) {
@@ -121,7 +137,7 @@ export class TimelineCanvasRenderer {
 
       let isRoot = true;
       for (const potentialParent of leftSpans) {
-        if (potentialParent.successor === node.title || potentialParent.successor === node.file.basename) {
+        if (potentialParent.successors.includes(node.title) || potentialParent.successors.includes(node.file.basename)) {
           isRoot = false; 
           break;
         }
@@ -129,28 +145,40 @@ export class TimelineCanvasRenderer {
 
       if (!isRoot) continue;
 
+      // Walk the lineage. With one successor per node this is the original straight chain; with
+      // several, each successor takes an equal slice of its predecessor's share of the column.
       const chainNodes: TimelineNode[] = [];
       let chainStart = node.startTime;
       let chainEnd = node.endTime ?? node.startTime;
-      let current: TimelineNode | undefined = node;
+      handled.add(node.id);
+      fractions.set(node.id, { start: 0, width: 1 });
+      const queue: TimelineNode[] = [node];
 
-      while (current && !handled.has(current.id)) {
-        handled.add(current.id);
+      while (queue.length > 0) {
+        const current = queue.shift()!;
         chainNodes.push(current);
         chainStart = Math.min(chainStart, current.startTime);
         chainEnd = Math.max(chainEnd, current.endTime ?? current.startTime);
 
-        if (current.successor) {
-          current = nodeMap.get(current.successor);
-        } else {
-          break;
+        const next: TimelineNode[] = [];
+        for (const name of current.successors) {
+          const successor = nodeMap.get(name);
+          if (successor && !handled.has(successor.id) && !next.includes(successor)) next.push(successor);
         }
+        const parentShare = fractions.get(current.id)!;
+        const slice = parentShare.width / Math.max(1, next.length);
+        next.forEach((successor, i) => {
+          handled.add(successor.id);
+          fractions.set(successor.id, { start: parentShare.start + i * slice, width: slice });
+          queue.push(successor);
+        });
       }
       chains.push({ nodes: chainNodes, start: chainStart, end: chainEnd });
     }
 
     for (const node of leftSpans) {
       if (!handled.has(node.id)) {
+        fractions.set(node.id, { start: 0, width: 1 });
         chains.push({ nodes: [node], start: node.startTime, end: node.endTime ?? node.startTime });
       }
     }
@@ -177,7 +205,8 @@ export class TimelineCanvasRenderer {
     for (let i = 0; i < columns.length; i++) {
       for (const chain of columns[i]) {
         for (const node of chain.nodes) {
-          this.leftLayoutCache.set(node.id, { col: i, numCols: columns.length });
+          const share = fractions.get(node.id) ?? { start: 0, width: 1 };
+          this.leftLayoutCache.set(node.id, { col: i, numCols: columns.length, subStart: share.start, subWidth: share.width });
         }
       }
     }
@@ -185,6 +214,7 @@ export class TimelineCanvasRenderer {
 
   draw(): void {
     this.calculateLeftSpanLayouts();
+    this.imageHitRects.clear();
 
     const width = this.canvas.clientWidth;
     const height = this.canvas.clientHeight;
@@ -451,7 +481,7 @@ export class TimelineCanvasRenderer {
 
     // PASS 2: Render Integration Zones for Regular World Spans
     for (const node of visible) {
-      if (node.kind === "span" && node.successor) {
+      if (node.kind === "span" && node.successors.length > 0) {
         this.renderWorldSpanIntegrationZone(node);
       }
     }
@@ -491,7 +521,7 @@ export class TimelineCanvasRenderer {
         }
       }
       for (const node of visible) {
-        if (node.kind === "span-left" && node.successor) {
+        if (node.kind === "span-left" && node.successors.length > 0) {
           this.renderIntegrationZone(node);
         }
       }
@@ -521,12 +551,42 @@ export class TimelineCanvasRenderer {
     const isSelected = this.selectedNodeIds.has(node.id);
     const color = this.resolveNodeColor(node);
 
+    if ((node.kind === "event" || node.kind === "note") && node.imageUrl && !this.brokenImages.has(node.imageUrl)) {
+      this.renderImageNode(node, color, isSelected);
+      return;
+    }
+
     if (node.kind === "span") {
       this.renderSpanRibbon(node, spine, color, isSelected, font, screenHeight);
     } else if (node.kind === "note") {
       this.renderFloatingNote(node, spine, color, isSelected, font);
     } else {
       this.renderPointEvent(node, spine, color, isSelected, font);
+    }
+  }
+
+  /**
+   * Events and notes with an image: the image alone stands in for the node. No anchor line to the
+   * spine, no dot, no title or date. It is centred on the node's position, and a dashed outline
+   * shows when it is selected.
+   */
+  private renderImageNode(node: TimelineNode, color: string, isSelected: boolean): void {
+    const img = this.getOrLoadImage(node.imageUrl!);
+    if (!img) return; // still loading; onload schedules a redraw
+
+    const x = this.worldX(node.horizontalOffset);
+    const y = this.timelineY(node.startTime) + node.verticalOffset;
+    const drawW = node.imageWidth ?? 100;
+    const drawH = drawW * (img.naturalHeight / img.naturalWidth);
+    this.drawNodeImage(node.id, img, x - drawW / 2, y - drawH / 2, drawW, drawH);
+
+    if (isSelected) {
+      this.ctx.save();
+      this.ctx.strokeStyle = color;
+      this.ctx.lineWidth = 2;
+      this.ctx.setLineDash([4, 3]);
+      this.ctx.strokeRect(x - drawW / 2 - 3, y - drawH / 2 - 3, drawW + 6, drawH + 6);
+      this.ctx.restore();
     }
   }
 
@@ -538,8 +598,9 @@ export class TimelineCanvasRenderer {
     const startY = this.timelineY(node.startTime) + node.verticalOffset;
     const endY = this.timelineY(node.endTime) + node.verticalOffset;
     
-    const colWidth = this.leftStripWidth / layout.numCols;
-    const x = layout.col * colWidth;
+    const fullColWidth = this.leftStripWidth / layout.numCols;
+    const colWidth = fullColWidth * layout.subWidth;
+    const x = layout.col * fullColWidth + layout.subStart * fullColWidth;
     
     const offset = node.spanHeightOffset ?? 0;
     const y1_box = startY - offset / 2;
@@ -585,7 +646,7 @@ export class TimelineCanvasRenderer {
     this.ctx.font = `bold ${fontSize}px ${font}`;
     
     if (this.showTitles) {
-      const titleOffset = this.showLeftSpanDates ? -(fontSize * 0.6 + 4) : 0;
+      const titleOffset = this.showLeftSpanDates ? this.spanLabelOffsets(fontSize, font).titleOffset : 0;
       this.ctx.fillText(node.title, 0, titleOffset);
     }
 
@@ -593,7 +654,7 @@ export class TimelineCanvasRenderer {
     this.ctx.font = `10px ${font}`;
     
     if (this.showLeftSpanDates) {
-      const dateOffset = this.showTitles ? (fontSize * 0.6 + 6) : 0;
+      const dateOffset = this.showTitles ? this.spanLabelOffsets(fontSize, font).dateOffset : 0;
       if (node.endDateDisplay && node.startDateDisplay !== node.endDateDisplay) {
         this.ctx.fillText(`${node.startDateDisplay} - ${node.endDateDisplay}`, 0, dateOffset);
       } else {
@@ -605,89 +666,100 @@ export class TimelineCanvasRenderer {
   }
 
   private renderIntegrationZone(node: TimelineNode): void {
-    if (!node.successor || node.endTime === null) return;
-    const target = this.nodes.find(n => n.title === node.successor || n.file.basename === node.successor);
-    if (!target || target.kind !== "span-left" || target.startTime >= node.endTime) return;
-
+    if (node.successors.length === 0 || node.endTime === null) return;
     const layout = this.leftLayoutCache.get(node.id);
-    const targetLayout = this.leftLayoutCache.get(target.id);
-    if (!layout || !targetLayout || layout.col !== targetLayout.col) return;
+    if (!layout) return;
 
-    const startY = this.timelineY(target.startTime) + target.verticalOffset; 
-    const endY = this.timelineY(node.endTime) + node.verticalOffset; 
-
-    const colWidth = this.leftStripWidth / layout.numCols;
-    const x = layout.col * colWidth;
-
-    const y1 = Math.min(startY, endY);
-    const y2 = Math.max(startY, endY);
-    const h = y2 - y1;
-    if (h <= 0) return;
-
-    this.ctx.save();
-    this.ctx.beginPath();
-    this.ctx.rect(x, y1, colWidth, h);
-    this.ctx.clip(); 
-
+    const fullColWidth = this.leftStripWidth / layout.numCols;
     const colorA = this.resolveNodeColor(node);
-    const colorB = this.resolveNodeColor(target);
 
-    this.ctx.fillStyle = colorA;
-    this.ctx.fill();
+    for (const target of this.resolveSuccessors(node)) {
+      if (target.kind !== "span-left" || target.startTime >= node.endTime) continue;
+      const targetLayout = this.leftLayoutCache.get(target.id);
+      if (!targetLayout || layout.col !== targetLayout.col) continue;
 
-    this.ctx.strokeStyle = colorB;
-    this.ctx.lineWidth = 8;
-    this.ctx.beginPath();
-    const stripeSpacing = 16;
-    for (let i = -colWidth; i < h + colWidth; i += stripeSpacing) {
-      this.ctx.moveTo(x, y1 + i);
-      this.ctx.lineTo(x + colWidth, y1 + i + colWidth);
+      const startY = this.timelineY(target.startTime) + target.verticalOffset;
+      const endY = this.timelineY(node.endTime) + node.verticalOffset;
+
+      // Each successor's hatch sits in that successor's own slice of the column
+      const colWidth = fullColWidth * targetLayout.subWidth;
+      const x = layout.col * fullColWidth + targetLayout.subStart * fullColWidth;
+
+      const y1 = Math.min(startY, endY);
+      const y2 = Math.max(startY, endY);
+      const h = y2 - y1;
+      if (h <= 0) continue;
+
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.rect(x, y1, colWidth, h);
+      this.ctx.clip();
+
+      this.ctx.fillStyle = colorA;
+      this.ctx.fill();
+
+      this.ctx.strokeStyle = this.resolveNodeColor(target);
+      this.ctx.lineWidth = 8;
+      this.ctx.beginPath();
+      const stripeSpacing = 16;
+      for (let i = -colWidth; i < h + colWidth; i += stripeSpacing) {
+        this.ctx.moveTo(x, y1 + i);
+        this.ctx.lineTo(x + colWidth, y1 + i + colWidth);
+      }
+      this.ctx.stroke();
+
+      this.ctx.restore();
     }
-    this.ctx.stroke();
-    
-    this.ctx.restore();
   }
 
   private renderWorldSpanIntegrationZone(node: TimelineNode): void {
-    if (!node.successor || node.endTime === null) return;
-    const target = this.nodes.find(n => n.title === node.successor || n.file.basename === node.successor);
-    if (!target || target.kind !== "span" || target.startTime >= node.endTime) return;
-
+    if (node.successors.length === 0 || node.endTime === null) return;
+    const nodeEnd = node.endTime;
+    const targets = this.resolveSuccessors(node).filter(t => t.kind === "span");
     const ribbonWidth = node.spanWidth ?? 28;
-    const targetWidth = target.spanWidth ?? 28;
-    const width = Math.min(ribbonWidth, targetWidth);
-    
-    const x = this.worldX(node.horizontalOffset) - width / 2;
-
-    const startY = this.timelineY(target.startTime) + target.verticalOffset;
-    const endY = this.timelineY(node.endTime) + node.verticalOffset;
-
-    const y1 = Math.min(startY, endY);
-    const y2 = Math.max(startY, endY);
-    const h = y2 - y1;
-    if (h <= 0) return;
-
-    this.ctx.save();
-    this.ctx.beginPath();
-    this.ctx.roundRect(x, y1, width, h, 4);
-    this.ctx.clip();
-
     const colorA = this.resolveNodeColor(node);
-    const colorB = this.resolveNodeColor(target);
 
-    this.ctx.fillStyle = colorA;
-    this.ctx.fill();
+    targets.forEach((target, index) => {
+      if (target.startTime >= nodeEnd) return;
 
-    this.ctx.strokeStyle = colorB;
-    this.ctx.lineWidth = 6;
-    this.ctx.beginPath();
-    const stripeSpacing = 12;
-    for (let i = -width; i < h + width; i += stripeSpacing) {
-      this.ctx.moveTo(x, y1 + i);
-      this.ctx.lineTo(x + width, y1 + i + width);
-    }
-    this.ctx.stroke();
-    this.ctx.restore();
+      // One successor: original behaviour. Several: equal slices across the predecessor's width.
+      let width: number;
+      let x: number;
+      if (targets.length === 1) {
+        width = Math.min(ribbonWidth, target.spanWidth ?? 28);
+        x = this.worldX(node.horizontalOffset) - width / 2;
+      } else {
+        width = ribbonWidth / targets.length;
+        x = this.worldX(node.horizontalOffset) - ribbonWidth / 2 + index * width;
+      }
+
+      const startY = this.timelineY(target.startTime) + target.verticalOffset;
+      const endY = this.timelineY(nodeEnd) + node.verticalOffset;
+
+      const y1 = Math.min(startY, endY);
+      const y2 = Math.max(startY, endY);
+      const h = y2 - y1;
+      if (h <= 0) return;
+
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.roundRect(x, y1, width, h, 4);
+      this.ctx.clip();
+
+      this.ctx.fillStyle = colorA;
+      this.ctx.fill();
+
+      this.ctx.strokeStyle = this.resolveNodeColor(target);
+      this.ctx.lineWidth = 6;
+      this.ctx.beginPath();
+      const stripeSpacing = 12;
+      for (let i = -width; i < h + width; i += stripeSpacing) {
+        this.ctx.moveTo(x, y1 + i);
+        this.ctx.lineTo(x + width, y1 + i + width);
+      }
+      this.ctx.stroke();
+      this.ctx.restore();
+    });
   }
 
   private renderFloatingNote(node: TimelineNode, spine: number, color: string, isSelected: boolean, font: string): void {
@@ -722,16 +794,6 @@ export class TimelineCanvasRenderer {
       this.ctx.strokeRect(boxX, boxY, boxW, boxH);
       this.ctx.setLineDash([]);
       this.ctx.globalAlpha = 1.0;
-    }
-
-    if (node.imageUrl) {
-      const img = this.getOrLoadImage(node.imageUrl);
-      if (img) {
-        const aspect = img.naturalHeight / img.naturalWidth;
-        const drawW = node.imageWidth ?? 100;
-        const drawH = drawW * aspect;
-        this.ctx.drawImage(img, x - drawW / 2, boxY - drawH - 8, drawW, drawH);
-      }
     }
 
     this.ctx.textAlign = "center";
@@ -791,16 +853,6 @@ export class TimelineCanvasRenderer {
         this.ctx.globalAlpha = 1.0;
       }
 
-      if (node.imageUrl) {
-        const img = this.getOrLoadImage(node.imageUrl);
-        if (img) {
-          const aspect = img.naturalHeight / img.naturalWidth;
-          const drawW = node.imageWidth ?? 100;
-          const drawH = drawW * aspect;
-          this.ctx.drawImage(img, x - drawW / 2, y - drawH - 15 - (fontSize/2), drawW, drawH);
-        }
-      }
-
       this.ctx.fillStyle = color;
       this.ctx.beginPath();
       this.ctx.arc(x, y, isSelected ? 6 : 4, 0, Math.PI * 2);
@@ -829,14 +881,21 @@ export class TimelineCanvasRenderer {
     if (node.endTime === null) return;
     const startY = this.timelineY(node.startTime);
     const endY = this.timelineY(node.endTime);
-    const ribbonWidth = node.spanWidth ?? 28;
-    const x = this.worldX(node.horizontalOffset) - ribbonWidth / 2;
+    let ribbonWidth = node.spanWidth ?? 28;
+    let x = this.worldX(node.horizontalOffset) - ribbonWidth / 2;
     
     const offset = node.spanHeightOffset ?? 0;
     const y1_line = startY + node.verticalOffset;
     const y2_line = endY + node.verticalOffset;
-    const y1_box = y1_line - offset / 2;
-    const ribbonHeight = Math.max(12, y2_line - y1_line) + offset;
+    let y1_box = y1_line - offset / 2;
+    let ribbonHeight = Math.max(12, y2_line - y1_line) + offset;
+
+    // Auto-fit: grow (never shrink) the box symmetrically so the label always fits inside it
+    const fit = this.fitSpanToLabel(node, font, ribbonWidth, ribbonHeight);
+    x -= fit.extraWidth / 2;
+    ribbonWidth += fit.extraWidth;
+    y1_box -= fit.extraHeight / 2;
+    ribbonHeight += fit.extraHeight;
 
     const scale = 1 + (node.importance || 0);
     const fontSize = Math.max(8, Math.round(12 * scale));
@@ -871,7 +930,7 @@ export class TimelineCanvasRenderer {
         const drawW = node.imageWidth ?? 100;
         const drawH = drawW * aspect;
         const centerX = x + ribbonWidth / 2;
-        this.ctx.drawImage(img, centerX - drawW / 2, y1_box - drawH - 10, drawW, drawH);
+        this.drawNodeImage(node.id, img, centerX - drawW / 2, y1_box - drawH - 10, drawW, drawH);
       }
     }
 
@@ -900,7 +959,7 @@ export class TimelineCanvasRenderer {
     this.ctx.font = `bold ${fontSize}px ${font}`;
     
     if (this.showTitles) {
-      const titleOffset = this.showSpanDates ? -(fontSize * 0.6 + 4) : 0;
+      const titleOffset = this.showSpanDates ? this.spanLabelOffsets(fontSize, font).titleOffset : 0;
       this.ctx.fillText(node.title, 0, titleOffset);
     }
 
@@ -908,7 +967,7 @@ export class TimelineCanvasRenderer {
     this.ctx.font = `10px ${font}`;
     
     if (this.showSpanDates) {
-      const dateOffset = this.showTitles ? (fontSize * 0.6 + 6) : 0;
+      const dateOffset = this.showTitles ? this.spanLabelOffsets(fontSize, font).dateOffset : 0;
       if (node.endDateDisplay && node.startDateDisplay !== node.endDateDisplay) {
         this.ctx.fillText(`${node.startDateDisplay} - ${node.endDateDisplay}`, 0, dateOffset);
       } else {
@@ -919,6 +978,105 @@ export class TimelineCanvasRenderer {
     this.ctx.restore();
   }
 
+  /**
+   * How much a world span's box must grow (screen px) so its title/date label fits inside.
+   * Mirrors the font sizes and line offsets used by renderSpanRibbon. Never negative, so manual
+   * span-width / span-height-offset values still act as the minimum size.
+   */
+  private fitSpanToLabel(node: TimelineNode, font: string, width: number, height: number): { extraWidth: number; extraHeight: number } {
+    const none = { extraWidth: 0, extraHeight: 0 };
+    if (!this.autoFitSpans || (!this.showTitles && !this.showSpanDates)) return none;
+
+    const scale = 1 + (node.importance || 0);
+    const fontSize = Math.max(8, Math.round(12 * scale));
+
+    // Longest line, measured along the text direction
+    let textLength = 0;
+    this.ctx.save();
+    if (this.showTitles) {
+      this.ctx.font = `bold ${fontSize}px ${font}`;
+      textLength = Math.max(textLength, this.ctx.measureText(node.title).width);
+    }
+    if (this.showSpanDates) {
+      this.ctx.font = `10px ${font}`;
+      const dateText = node.endDateDisplay && node.startDateDisplay !== node.endDateDisplay
+        ? `${node.startDateDisplay} - ${node.endDateDisplay}`
+        : node.startDateDisplay;
+      textLength = Math.max(textLength, this.ctx.measureText(dateText).width);
+    }
+    this.ctx.restore();
+    if (textLength === 0) return none;
+
+    // Thickness of the stacked lines, measured across the text direction (symmetric about the centre)
+    let textThickness: number;
+    if (this.showTitles && this.showSpanDates) {
+      const { titleOffset, dateOffset } = this.spanLabelOffsets(fontSize, font);
+      textThickness = 2 * Math.max(Math.abs(titleOffset - fontSize / 2), Math.abs(dateOffset + SPAN_DATE_FONT_SIZE / 2));
+    } else {
+      textThickness = this.showTitles ? fontSize : 10;
+    }
+
+    const needAlong = textLength + SPAN_LABEL_PADDING_ALONG * 2;
+    const needAcross = textThickness + SPAN_LABEL_PADDING_ACROSS * 2;
+    const isVertical = node.textDirection === "vertical";
+    const needWidth = isVertical ? needAcross : needAlong;
+    const needHeight = isVertical ? needAlong : needAcross;
+
+    return {
+      extraWidth: Math.max(0, needWidth - width),
+      extraHeight: Math.max(0, needHeight - height),
+    };
+  }
+
+  /** Successor nodes in the order they are listed, de-duplicated. */
+  private resolveSuccessors(node: TimelineNode): TimelineNode[] {
+    const result: TimelineNode[] = [];
+    for (const name of node.successors) {
+      const target = this.nodes.find(n => n.title === name || n.file.basename === name);
+      if (target && target !== node && !result.includes(target)) result.push(target);
+    }
+    return result;
+  }
+
+  private drawNodeImage(nodeId: string, img: HTMLImageElement, x: number, y: number, w: number, h: number): void {
+    this.ctx.drawImage(img, x, y, w, h);
+    this.imageHitRects.set(nodeId, { x, y, w, h });
+  }
+
+  /**
+   * Cap-top and baseline positions relative to the canvas "middle" text baseline, as fractions of
+   * the font size. Measured once per font family, so the title/date gap is exact for any theme font.
+   */
+  private getLetterMetrics(font: string): { capAbove: number, baseBelow: number } {
+    let metrics = this.letterMetricsCache.get(font);
+    if (!metrics) {
+      this.ctx.save();
+      this.ctx.font = `bold 100px ${font}`;
+      this.ctx.textBaseline = "middle";
+      const box = this.ctx.measureText("H");
+      this.ctx.restore();
+      const capAbove = (box.actualBoundingBoxAscent ?? 0) / 100;
+      const baseBelow = (box.actualBoundingBoxDescent ?? 0) / 100;
+      metrics = capAbove > 0 && baseBelow >= 0 ? { capAbove, baseBelow } : { capAbove: 0.43, baseBelow: 0.3 };
+      this.letterMetricsCache.set(font, metrics);
+    }
+    return metrics;
+  }
+
+  /**
+   * Vertical offsets for the stacked title + date label on spans and left spans. The visible gap
+   * between the title baseline and the top of the date digits is SPAN_LABEL_LINE_GAP, and the
+   * two-line block stays centred on the anchor point.
+   */
+  private spanLabelOffsets(fontSize: number, font: string): { titleOffset: number, dateOffset: number } {
+    const m = this.getLetterMetrics(font);
+    const centreGap = m.baseBelow * fontSize + SPAN_LABEL_LINE_GAP + m.capAbove * SPAN_DATE_FONT_SIZE;
+    const blockTop = -m.capAbove * fontSize;
+    const blockBottom = centreGap + m.baseBelow * SPAN_DATE_FONT_SIZE;
+    const titleOffset = -(blockTop + blockBottom) / 2;
+    return { titleOffset, dateOffset: titleOffset + centreGap };
+  }
+
   hitTest(x: number, y: number): TimelineNode | null {
     if (this.leftStripWidth > 0 && x <= this.spineX) {
       for (const node of this.getVisibleNodes().reverse()) {
@@ -927,8 +1085,9 @@ export class TimelineCanvasRenderer {
           if (layout) {
             const startY = this.timelineY(node.startTime) + node.verticalOffset - (node.spanHeightOffset ?? 0) / 2;
             const endY = this.timelineY(node.endTime) + node.verticalOffset + (node.spanHeightOffset ?? 0) / 2;
-            const colWidth = this.leftStripWidth / layout.numCols;
-            const lx = layout.col * colWidth;
+            const fullColWidth = this.leftStripWidth / layout.numCols;
+            const colWidth = fullColWidth * layout.subWidth;
+            const lx = layout.col * fullColWidth + layout.subStart * fullColWidth;
             
             if (x >= lx && x <= lx + colWidth && y >= startY && y <= endY) {
               return node;
@@ -939,8 +1098,16 @@ export class TimelineCanvasRenderer {
       return null; 
     }
 
+    const hitFont = this.autoFitSpans ? this.cssFont : "";
     for (const node of this.getVisibleNodes().reverse()) {
       if (node.kind === "era" || node.kind === "span-left") continue;
+
+      const imgRect = this.imageHitRects.get(node.id);
+      if (imgRect && x >= imgRect.x && x <= imgRect.x + imgRect.w && y >= imgRect.y && y <= imgRect.y + imgRect.h) {
+        return node;
+      }
+      // Image-only event/note: there is no dot or label to hit outside the image
+      if (imgRect && (node.kind === "event" || node.kind === "note")) continue;
       
       if (node.kind === "region") {
         const startY = this.timelineY(node.startTime) + node.verticalOffset;
@@ -957,10 +1124,20 @@ export class TimelineCanvasRenderer {
 
       if (node.kind === "span" && node.endTime !== null) {
         const offset = node.spanHeightOffset ?? 0;
-        const startY = this.timelineY(node.startTime) + node.verticalOffset - offset / 2;
-        const endY = this.timelineY(node.endTime) + node.verticalOffset + offset / 2;
-        const ribbonWidth = node.spanWidth ?? 28;
-        const rx = this.worldX(node.horizontalOffset) - ribbonWidth / 2;
+        let startY = this.timelineY(node.startTime) + node.verticalOffset - offset / 2;
+        let endY = this.timelineY(node.endTime) + node.verticalOffset + offset / 2;
+        let ribbonWidth = node.spanWidth ?? 28;
+        let rx = this.worldX(node.horizontalOffset) - ribbonWidth / 2;
+
+        // Mirror renderSpanRibbon's auto-fit so the grown area is clickable too
+        const drawnHeight = Math.max(12, endY - startY - offset) + offset;
+        const fit = this.fitSpanToLabel(node, hitFont, ribbonWidth, drawnHeight);
+        if (fit.extraHeight > 0) {
+          endY = startY + drawnHeight + fit.extraHeight / 2;
+          startY -= fit.extraHeight / 2;
+        }
+        rx -= fit.extraWidth / 2;
+        ribbonWidth += fit.extraWidth;
         if (x >= rx && x <= rx + ribbonWidth && y >= startY && y <= endY) {
           return node;
         }

@@ -6,12 +6,12 @@ export class NodeInspectorModal extends Component {
 
   constructor(private app: App, private node: TimelineNode, private onClose: () => void) {
     super();
-    this.containerEl = document.createElement("div");
+    this.containerEl = createDiv();
     this.containerEl.className = "tau-inspector-overlay";
   }
 
   async open(): Promise<void> {
-    document.body.append(this.containerEl);
+    activeDocument.body.append(this.containerEl);
     this.load();
     await this.renderLayout();
   }
@@ -40,10 +40,10 @@ export class NodeInspectorModal extends Component {
     const contentSection = body.createDiv({ cls: "tau-inspector-section" });
     try {
       const file = this.node.file;
-      const cachedContent = await this.app.vault.read(file);
+      const cachedContent = await this.app.vault.cachedRead(file);
       const bodyContent = cachedContent.replace(/^---\n[\s\S]*?\n---\n/, "");
       await MarkdownRenderer.render(this.app, bodyContent, contentSection, file.path, this);
-    } catch (err) {
+    } catch {
       contentSection.createEl("p", { text: "Could not load note body contents." });
     }
   }

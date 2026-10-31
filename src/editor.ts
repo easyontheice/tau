@@ -44,7 +44,7 @@ export class NodeEditorModal extends Modal {
       "image": fm["image"] || "",
       "image-width": fm["image-width"]?.toString() || "",
       "child-of": fm["child-of"] || "",
-      "successor": fm["successor"] || "", // <-- NEW FIELD
+      "successor": fm["successor"] || "", 
       "branch-to": Array.isArray(fm["branch-to"]) ? fm["branch-to"].join(", ") : (fm["branch-to"] || ""),
       "influence-to": Array.isArray(fm["influence-to"]) ? fm["influence-to"].join(", ") : (fm["influence-to"] || ""),
       "measure-to": fm["measure-to"] || "",
@@ -63,7 +63,7 @@ export class NodeEditorModal extends Modal {
     
     new Setting(contentEl).setName("Title").addText(t => {
       t.setValue(this.formData["title"]).onChange(v => this.formData["title"] = v);
-      t.inputEl.style.width = "100%";
+      t.inputEl.setCssStyles({ width: "100%" }); 
     });
 
     new Setting(contentEl).setName("Node Kind").addDropdown(d => {
@@ -151,7 +151,6 @@ export class NodeEditorModal extends Modal {
       t.setValue(this.formData["child-of"]).onChange(v => this.formData["child-of"] = v);
     });
 
-    // NEW SUCCESSOR INPUT
     new Setting(contentEl).setName("Successor").setDesc("Dynasty that follows/integrates this span").addText(t => {
       t.setValue(this.formData["successor"]).onChange(v => this.formData["successor"] = v);
     });
@@ -171,13 +170,16 @@ export class NodeEditorModal extends Modal {
     contentEl.createEl("h4", { text: "Description Body", cls: "tau-modal-section" });
     
     const textAreaContainer = contentEl.createDiv();
-    textAreaContainer.style.width = "100%";
+    textAreaContainer.setCssStyles({ width: "100%" });
+
     const textArea = textAreaContainer.createEl("textarea");
-    textArea.style.width = "100%";
-    textArea.style.height = "180px";
-    textArea.style.resize = "vertical";
-    textArea.style.padding = "10px";
-    textArea.style.fontFamily = "var(--font-monospace)";
+    textArea.setCssStyles({
+      width: "100%",
+      height: "180px",
+      resize: "vertical",
+      padding: "10px",
+      fontFamily: "var(--font-monospace)"
+    });
     textArea.value = this.bodyContent;
     
     textArea.addEventListener("input", (e) => {
@@ -185,9 +187,11 @@ export class NodeEditorModal extends Modal {
     });
 
     const buttonContainer = contentEl.createDiv();
-    buttonContainer.style.display = "flex";
-    buttonContainer.style.justifyContent = "flex-end";
-    buttonContainer.style.marginTop = "20px";
+    buttonContainer.setCssStyles({
+      display: "flex",
+      justifyContent: "flex-end",
+      marginTop: "20px"
+    });
 
     new Setting(buttonContainer)
       .addButton(b => b
@@ -218,7 +222,7 @@ export class NodeEditorModal extends Modal {
       writeOrDelete("border-style", form["border-style"]);
       writeOrDelete("image", form["image"]);
       writeOrDelete("child-of", form["child-of"]);
-      writeOrDelete("successor", form["successor"]); // <-- SAVE LOGIC
+      writeOrDelete("successor", form["successor"]); 
       writeOrDelete("time-travel", form["time-travel"]);
       writeOrDelete("coordinates", form["coordinates"]);
 

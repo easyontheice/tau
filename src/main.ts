@@ -595,13 +595,17 @@ class TextInputModal extends Modal {
     contentEl.createEl("p", { text: this.description });
     
     const input = contentEl.createEl("input", { type: "text", value: this.defaultVal });
-    input.style.width = "100%";
-    input.style.marginBottom = "20px";
-    input.style.padding = "10px";
+    input.setCssStyles({
+      width: "100%",
+      marginBottom: "20px",
+      padding: "10px"
+    });
     
     const btnContainer = contentEl.createDiv();
-    btnContainer.style.display = "flex";
-    btnContainer.style.justifyContent = "flex-end";
+    btnContainer.setCssStyles({
+      display: "flex",
+      justifyContent: "flex-end"
+    });
     
     const submitBtn = btnContainer.createEl("button", { text: "Save", cls: "mod-cta" });
     

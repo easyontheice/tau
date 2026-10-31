@@ -1,7 +1,9 @@
 ## Support the Engine
 Tau is free, but my rent is not 🙄. If this plugin saved you from wrestling with raw YAML for six hours, consider buying me a coffee. 
 
-[☕ Buy me a coffee](https://www.buymeacoffee.com/easyontheice)
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/easyontheice)
+
+![Screenshot](img/example_1.png)
 
 **An infinite, canvas-based vertical timeline and cartographic engine for Obsidian.**
 
@@ -12,6 +14,8 @@ This engine uses a hardware-accelerated HTML5 Canvas to treat your vault like an
 To view a note, double-click on it. To edit its properties, right-click. A basic CSV importer is included, and you can find a template in the datasets folder.
 
 *Special credit to [UsefulCharts](https://usefulcharts.com/) for inspiring the layout architecture of this engine.*
+
+![Screenshot](img/inspector_1.png)
 
 ---
 

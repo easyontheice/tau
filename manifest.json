@@ -2,7 +2,7 @@
   "id": "Tau",
   "name": "Tau",
   "version": "1.0.0",
-  "minAppVersion": "1.0.0",
+  "minAppVersion": "1.14.5",
   "description": "Aesthetically inspired from the master at usefulcharts.com, Tau is an infinitely zoomable vertical timeline plugin for Obsidian with free 2D movement, orthogonal tethers, spans, eras, regions, time measurement, influence lines, and rich note inspectors. Tested with over 8000 timeline events at once with zero lag.",
   "author": "easyontheice",
   "fundingUrl": "https://buymeacoffee.com/easyontheice"

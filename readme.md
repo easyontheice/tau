@@ -1,33 +1,38 @@
-# Tau (τ) ⏳
+## Support the Engine
+Tau is free, but my rent is not 🙄. If this plugin saved you from wrestling with raw YAML for six hours, consider buying me a coffee. 
 
-![Screenshot](img/example_1.png)
+[☕ Buy me a coffee](https://www.buymeacoffee.com/easyontheice)
 
 **An infinite, canvas-based vertical timeline and cartographic engine for Obsidian.**
 
-[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/easyontheice)
+Tau exists mostly because the current landscape of timeline plugins is an inflexible mess. Most tools force non-linear historical events into rigid grids or markdown tables that fall apart the second you introduce overlapping eras or parallel civilizations.
 
-Tau was born out of sheer frustration with the current landscape of timeline plugins. Most existing tools are fundamentally rigid—forcing non-linear historical events into strictly linear grids, horizontal scroll corridors, or markdown tables with zero spatial freedom. They collapse when handling overlapping eras, parallel civilizations, or complex causal relationships.
+This engine uses a hardware-accelerated HTML5 Canvas to treat your vault like an actual spatial atlas. You can drag events around an infinite vertical coordinate space, pack diverging dynasties into lanes, and link causal events without having to write raw YAML manually. It is also obnoxiously fast—handling 4000-event timelines without lagging, which is likely more history than you actually need to map.
 
-Tau changes that paradigm. Powered by a custom, hardware-accelerated **HTML5 Canvas renderer**, Tau treats your vault as an interactive historical atlas. Drag events anywhere across an infinite vertical coordinate space, map diverging dynasties with dynastic lane packing, visualize causal influence with vector links, and never write raw YAML again.
+To view a note, double-click on it. To edit its properties, right-click. A basic CSV importer is included, and you can find a template in the datasets folder.
 
-*Special credit to [UsefulCharts](https://usefulcharts.com/) for inspiring the visual language and layout architecture of this engine.*
-
-![Screenshot](img/inspector_1.png)
+*Special credit to [UsefulCharts](https://usefulcharts.com/) for inspiring the layout architecture of this engine.*
 
 ---
 
-## 🏗️ Architectural Overview & Core Concepts
+## Architectural Overview and Core Concepts
 
-Tau operates on a decoupled data model:
-1. **The Source of Truth:** Your standard Obsidian Markdown notes. All coordinates, lineages, color tokens, and metadata live directly inside the note's YAML frontmatter.
-2. **The World Coordinate System:** Time flows vertically along the Y-axis (supporting astronomical BCE/CE dates), while the X-axis represents your customizable thematic lanes, offsets, and spatial groupings.
-3. **The Non-Destructive Canvas:** Dragging, scattering, or linking nodes on the canvas immediately synchronizes with your markdown frontmatter using Obsidian's native `app.fileManager` API without altering your note body.
+Tau operates on a decoupled data model.
+
+**The Source of Truth**
+Your standard Obsidian Markdown notes hold the data. All coordinates, color tokens, and metadata live directly inside the note's YAML frontmatter.
+
+**The World Coordinate System**
+Time flows vertically along the Y-axis (yes, it supports astronomical BCE/CE dates), while the X-axis handles your customizable thematic lanes and spatial groupings.
+
+**The Non-Destructive Canvas**
+Dragging or linking nodes on the canvas immediately updates your markdown frontmatter via Obsidian's native file manager. Your actual note text is left entirely alone.
 
 ---
 
-## 📑 Complete YAML Frontmatter Schema
+## Complete YAML Frontmatter Schema
 
-Every note designated for Tau must contain `timeline: main` (or your targeted timeline identifier). Below is an annotated, fully loaded YAML example showing every supported property:
+Every note intended for Tau needs `timeline: main` (or whatever you named your timeline instance). Below is a fully loaded example showing every supported property so you know exactly what you are dealing with.
 
 ```yaml
 ---
@@ -61,7 +66,7 @@ image: "byzantine-double-eagle.png"
 image-width: 120
 ---
 
-# Historical Context & Markdown Body
+# Historical Context and Markdown Body
 Content written here is completely preserved. Double-clicking this node on the timeline opens the native Markdown Inspector view without editing your metadata.
 
 ```
@@ -72,147 +77,153 @@ Content written here is completely preserved. Double-clicking this node on the t
 | --- | --- | --- | --- |
 | `timeline` | String | `main` | Associates the file with a specific timeline instance. |
 | `title` | String | *Filename* | The display title rendered on the canvas. |
-| `timeline-kind` | String | `event` | Geometry mode: `event`, `span`, `span-left`, `era`, `region`, or `note`. |
-| `start-date` | String | *Required* | Formatted date (e.g., `1453 CE`, `27 BCE`, `1789-07-14`). |
+| `timeline-kind` | String | `event` | Geometry mode `event`, `span`, `span-left`, `era`, `region`, or `note`. |
+| `start-date` | String | *Required* | Formatted date (e.g. `1453 CE`, `27 BCE`, `1789-07-14`). |
 | `end-date` | String | *Optional* | Terminus date (required for spans, eras, and regions). |
 | `color` | String (Hex) | `#1c1917` | Fill color for dots, ribbons, backgrounds, and links. |
 | `title-color` | String (Hex) | `#000000` | Text color for node labels. |
 | `date-color` | String (Hex) | *Dynamic* | Explicit override for date labels (falls back to theme default). |
 | `text-direction` | String | *Auto* | Forces `vertical` or `horizontal` text orientation. |
-| `border-style` | String | `none` | For notes: `solid`, `dashed`, or `none`. |
+| `border-style` | String | `none` | For notes `solid`, `dashed`, or `none`. |
 | `importance` | Float | `0` | Scales font and indicator sizes. Values `< 0` flag the item as a minor node. |
 | `coordinates` | String | `""` | Geographic `latitude, longitude` coordinates for spatial mapping. |
 | `horizontal-offset` | Integer | `0` | X-axis pixel displacement relative to the spine. |
 | `vertical-offset` | Integer | `0` | Y-axis pixel displacement relative to the true date coordinate. |
 | `span-width` | Integer | *Dynamic* | Manual width override for ribbons and background columns. With span auto-fit on, acts as the minimum ribbon width. |
-| `span-height-offset` | Integer | `0` | Extends ribbon start/end bounds independently of dates. With span auto-fit on, ribbons also grow on their own to fit their label. |
+| `span-height-offset` | Integer | `0` | Extends ribbon bounds independently of dates. With auto-fit on, ribbons grow to fit their label. |
 | `global-event` | Boolean | `false` | Renders a full-bleed horizontal dividing line across the entire viewport. |
-| `successor` | String or list | `""` | Fuses the node into a dynastic lane with the target node. List several titles to split the lane: the successors share the predecessor's width equally, left to right in the order listed. |
+| `successor` | String/List | `""` | Fuses the node into a dynastic lane. List several to split the lane equally left to right. |
 | `child-of` | String | `""` | Targets a parent node for a cubic Bezier S-curve link. |
-| `branch-to` | List | `[]` | Targets one or more nodes for orthogonal subway-style divergence. |
-| `influence-to` | List | `[]` | Targets one or more nodes for dashed directional influence vectors. |
+| `branch-to` | List | `[]` | Targets nodes for orthogonal subway-style divergence. |
+| `influence-to` | List | `[]` | Targets nodes for dashed directional influence vectors. |
 | `measure-to` | String | `""` | Draws an interactive measurement line calculating temporal distance. |
-| `image` | String | `""` | Obsidian link (`[[image.png]]`), embed (`![[image.png]]`) or vault path to render inline artwork. On events and notes the image replaces the node entirely (no dot, anchor line, title or date) and is centred on the node's position; on spans it sits above the ribbon. Images are clickable and drag with their node. |
+| `image` | String | `""` | Obsidian link, embed, or vault path to render inline artwork. Replaces the node entirely on events and notes. |
 | `image-width` | Integer | `100` | Rendered pixel width of the inline image artifact. |
 
 ---
 
-## 🎨 Supported Node Geometries (`timeline-kind`)
+## Supported Node Geometries
 
-Tau adapts its rendering pipelines based on the semantic role of the note:
+Tau adapts its rendering pipelines based on the semantic role of the note.
 
-1. **Point Events (`event`):** Discrete moments in history. Rendered as a circular milestone connected to the left time spine via horizontal anchor lines. Can be promoted to a **Global Event** (`global-event: true`) to draw an epochal divider across the screen.
-2. **Spans (`span`):** Continuous historical intervals. Rendered as floating vertical ribbons whose heights directly reflect their chronological duration. Includes automatic edge-clamping for labels.
-3. **Left Spans (`span-left`):** The Legend Zone. Occupies a dedicated column cluster along the left ruler edge. Ideal for macro-civilizations, empires, and dynasties. Packed with collision-avoidance algorithms.
-4. **Eras (`era`):** Broad contextual backdrops. Painted as ultra-low-opacity vertical bands that span the entire height of the viewport behind your active events.
-5. **Regions (`region`):** Spatial boundary boxes that bracket both time and horizontal space, grouping distinct localized sub-histories together.
-6. **Notes (`note`):** Floating annotations with configurable borders (`solid`, `dashed`, `none`) for historiographical debates, source citations, or context blocks.
+**Point Events** (`event`)
+Discrete historical moments. Rendered as a circular milestone connected to the left time spine. You can promote it to a global event to draw a dividing line across the entire screen.
 
----
+**Spans** (`span`)
+Continuous intervals. These show up as floating vertical ribbons with heights reflecting their actual duration. Includes automatic edge-clamping for labels.
 
-## 🔥 Deep-Dive: Core Engine Features
+**Left Spans** (`span-left`)
+The Legend Zone. This occupies a dedicated column cluster along the left edge, ideal for macro-civilizations and dynasties. Packed with collision-avoidance logic.
 
-### 1. Absolute Spatial Freedom & Auto-Scatter
+**Eras** (`era`)
+Broad contextual backdrops. Painted as ultra-low-opacity vertical bands that span the entire viewport behind your active events.
 
-Unlike traditional timeline tools that collapse overlapping dates into illegible stacks, Tau gives you complete manual control over node placement.
+**Regions** (`region`)
+Spatial boundary boxes that bracket both time and horizontal space to group localized sub-histories together.
 
-* **Direct Canvas Manipulation:** Click and drag any node or cluster. When you release the pointer, Tau writes the exact pixel offset directly into your frontmatter (`horizontal-offset` and `vertical-offset`).
-* **Auto-Scatter:** Right-click anywhere and trigger **Auto-scatter all events**. The engine calculates chronological spacing and programmatically disperses all floating events horizontally across 50 lanes between `X: 20` and `X: 1000` with staggered vertical offsets, eliminating visual pileups in a single pass.
-
-### 2. Advanced Lineage, Topology & Linking
-
-Tau is a relational network graph mapped onto chronological space:
-
-* **Child-Of (S-Curves):** Generates smooth cubic Bezier curves originating from a parent node’s coordinates down to its child.
-* **Branch-To (Subway Splits):** Creates thick, orthogonal, right-angle tracks that split from the bottom of an empire or event into one or more divergent successors.
-* **Influence-To (Vector Rays):** Emits dashed directional arrows with calculated vector arrowheads, showing cultural, intellectual, or military impact across disparate regions.
-* **Measure-To (Temporal Ruler):** Draws an amber measurement arc between any two nodes. The engine calculates the real-time temporal delta and displays a breakdown showing:
-* Years, months, and days
-* Total elapsed days
-* Decimal year differences
-
-
-
-### 3. Dynastic Succession & The Assimilation Zone
-
-When displaying successive dynasties in the left legend (`span-left`), chronological overlaps frequently occur during wars of succession, civil fragmentation, or assimilation periods.
-
-* **Lineage Chaining:** Specifying a `successor` forces the engine to bypass normal collision separation. Tau locks the successor into the *exact same horizontal column* as the predecessor. With several successors (a YAML list), that column is divided equally between them, left to right in the order listed, and each gets its own hatched transition slice.
-* **Hatched Integration Zones:** Where Empire A and its `successor` Empire B overlap in time, Tau generates an intersection clipping mask filled with a **45-degree dual-color hatching pattern**, blending the primary hues of both civilizations to represent the transition of power.
-
-### 4. Dual-Modal Interface: Reading vs. Authoring
-
-Tau keeps viewing and editing strictly decoupled to avoid cognitive friction:
-
-* **The Reader (Double-Click):** Double-clicking any node opens the native **Inspector Panel**. It strips out frontmatter completely and uses Obsidian's Markdown engine to display rendered text, links, tasks, and embedded images.
-* **The Author (Right-Click → Edit node properties):** Opens the **Master Editor HUD**. This unified modal maps every visual and relational attribute to native inputs, dropdowns, and color pickers. Saving updates the note's frontmatter and automatically sanitizes/renames the markdown file to match your new title with collision detection.
-
-### 5. Power User Tools
-
-* **The Clutter Filter:** Assign an `importance` integer to your nodes. Setting `importance: -1` flags an item as low-priority. Toggle **Hide minor nodes** from the context menu to clear minor events from the canvas while preserving your macro-historical timeline.
-* **Shift-Drag Lasso Selection:** Hold `Shift` and drag across the canvas to draw an area bounding box. All enclosed nodes are multi-selected, allowing you to reposition entire historical eras as a unified group or trigger batch deletions.
-* **Intelligent Sticky Headers:** For long spans (`span` and `span-left`) that stretch beyond the screen height, the title text automatically slides along the ribbon and pins itself near the viewport boundary, guaranteeing label visibility during vertical scrolling.
-* **Horizontal Raycast Alignment:** Right-click an event, select **Align horizontally to...**, and click any other node on the board. The source event immediately snaps to the target's horizontal coordinate lane.
+**Notes** (`note`)
+Floating annotations for citations or context blocks, complete with configurable borders.
 
 ---
 
-## 🖱️ Context Menu Cheat Sheet
+## Core Engine Features
 
-Right-click anywhere on the canvas or directly on a node to access the command HUD:
+### Absolute Spatial Freedom and Auto-Scatter
+
+Unlike traditional tools that collapse overlapping dates into an unreadable mess, you actually control where things go here.
+
+Click and drag any node. When you let go, Tau writes the exact pixel offset directly into your frontmatter. If your timeline is a disaster, right-click and run Auto-scatter all events. The engine calculates chronological spacing and disperses everything across 50 lanes, fixing your visual pileups in a single pass.
+
+### Advanced Lineage and Linking
+
+This is essentially a relational network graph mapped onto chronological space.
+
+* **Child-Of** generates smooth S-curves from a parent down to a child.
+* **Branch-To** creates right-angle subway tracks for divergent successors.
+* **Influence-To** draws dashed vector arrows to show cultural or military impact.
+* **Measure-To** draws an interactive ruler between two nodes to calculate exact temporal distances in years, months, and days.
+
+### Dynastic Succession and Assimilation
+
+When plotting successive dynasties in the left legend, overlaps are inevitable. If you specify a successor, Tau bypasses standard collision rules and locks the successor into the exact same column as its predecessor. If they overlap in time, the engine generates a hatched integration zone blending both colors, because transitions of power are rarely clean.
+
+### Dual-Modal Interface
+
+Viewing and editing are strictly separated so you do not ruin your data by accident.
+
+Double-clicking a node opens the Inspector Panel, which simply uses Obsidian's Markdown engine to display your text and images. Right-clicking and selecting to edit properties opens the Master Editor HUD, mapping all attributes to actual inputs and color pickers. Saving updates the frontmatter and renames the file if necessary.
+
+### Power User Tools
+
+Assign an importance integer to your nodes. Setting it to -1 flags the item as low-priority, allowing you to hide minor nodes and clear out the clutter. You can also hold Shift to lasso multiple nodes to move or delete entire eras at once.
+
+For long spans that stretch beyond the screen, the title text pins itself to the viewport boundary so you do not forget what you are looking at while scrolling. You can also perfectly align a node's horizontal position with another via the context menu.
+
+---
+
+## Context Menu Cheat Sheet
+
+Right-click the canvas or a node to access the command HUD.
 
 | Menu Item | Target | Description |
 | --- | --- | --- |
 | **Edit node properties** | Node | Opens the Master Editor HUD for full YAML configuration. |
 | **Open Markdown file** | Node | Opens the source `.md` file in an Obsidian workspace tab. |
-| **Assign image... / Change image...** | Node | Pick any image in your vault; it is saved to the `image` property and drawn on the timeline. |
-| **Set image width...** | Node | Sets `image-width` in pixels (blank resets to 100). Shown when the node has an image. |
-| **Remove image** | Node | Clears `image` and `image-width`. Shown when the node has an image. |
-| **Delete node(s)** | Node | Moves the selected node (or multi-selected group) to the trash, following your Obsidian "Deleted files" setting. |
+| **Assign image / Change image** | Node | Pick any image in your vault to render on the timeline. |
+| **Set image width** | Node | Sets `image-width` in pixels. |
+| **Remove image** | Node | Clears the image data. |
+| **Delete node(s)** | Node | Moves the selected node or group to the trash. |
 | **Align horizontally to...** | Node | Raycasts to a clicked target and snaps the current node to its X-coordinate. |
-| **Succeeded by...** | Node | Raycasts to add a dynastic successor for lane-sharing and hatched assimilation. Repeat to split the lane between several successors; pick an existing successor again to remove it. |
+| **Succeeded by...** | Node | Raycasts to add a dynastic successor for lane-sharing. |
 | **Child of...** | Node | Raycasts to create a Bezier S-curve from a parent node. |
 | **Branch to...** | Node | Raycasts to generate an orthogonal subway divergence line. |
 | **Influence to...** | Node | Raycasts to establish a dashed directional vector arrow. |
 | **Measure to...** | Node | Raycasts to calculate and display real-time chronological distances. |
-| **New node** | Canvas | Generates a blank note template and opens the Master Editor HUD. |
-| **Set left strip width** | Canvas | Adjusts the pixel width of the left dynastic legend (set to `0` to hide). |
-| **Auto-scatter all events** | Canvas | Automatically disperses overlapping events into clean, readable lanes. |
-| **Show/hide minor nodes** | Canvas | Hides or reveals all nodes with `importance < 0`. |
-| **Show/hide display toggles** | Canvas | Independent display switches for titles, event dates, span dates, left-span dates, gridlines, and anchor spines. |
-| **Enable/disable span auto-fit** | Canvas | When on (default), world span ribbons grow so their title and dates always fit inside. `span-width` and `span-height-offset` still act as the minimum size. Remembered per vault. |
+| **New node** | Canvas | Generates a blank note template and opens the editor HUD. |
+| **Set left strip width** | Canvas | Adjusts the pixel width of the left dynastic legend. |
+| **Auto-scatter all events** | Canvas | Automatically disperses overlapping events into readable lanes. |
+| **Show/hide minor nodes** | Canvas | Hides or reveals all nodes with negative importance. |
+| **Show/hide display toggles** | Canvas | Independent display switches for gridlines, spines, and dates. |
+| **Enable/disable span auto-fit** | Canvas | Toggles whether ribbons automatically grow to fit their text. |
 
 ---
 
-## ⌨️ Controls & Navigation
+## Controls and Navigation
 
-* **Pan Timeline:** Left-click and drag on an empty section of the canvas.
-* **Temporal Zoom:** Hold `Ctrl` (or `Cmd` on macOS) and scroll the mouse wheel to compress or expand the view scale (from days to tens of thousands of years).
-* **Horizontal Pan:** Hold `Shift` and scroll the mouse wheel to traverse horizontal lanes.
-* **Move Node(s):** Click and drag a selected node or lassoed group.
-* **Multi-Select Lasso:** Hold `Shift`, then click and drag a bounding box around multiple nodes.
-* **Open Reader:** Double-click any node.
-* **Context Actions:** Right-click canvas or node.
+* **Pan Timeline** Left-click and drag on an empty section of the canvas.
+* **Temporal Zoom** Hold Ctrl (or Cmd on macOS) and scroll the mouse wheel to scale from days to thousands of years.
+* **Horizontal Pan** Hold Shift and scroll the mouse wheel to traverse lanes.
+* **Move Nodes** Click and drag a selected node or lassoed group.
+* **Multi-Select Lasso** Hold Shift, then click and drag a bounding box.
+* **Open Reader** Double-click any node.
+* **Context Actions** Right-click the canvas or a node.
 
 ---
 
-## 🛠️ Installation
+## Installation
 
 ### Via Obsidian Community Plugins (Recommended)
 
-1. Open Obsidian **Settings** → **Community Plugins**.
-2. Ensure Community Plugins are enabled, then click **Browse**.
-3. Search for **Tau**.
-4. Click **Install**, then **Enable**.
+1. Open Obsidian Settings and go to Community Plugins.
+2. Ensure they are enabled, then click Browse.
+3. Search for Tau.
+4. Click Install, then Enable.
 
 ### Manual Installation
 
-1. Download the latest release assets (`main.js`, `manifest.json`, `styles.css`) from the [Releases](https://github.com/) page.
-2. Inside your Obsidian vault, navigate to `.obsidian/plugins/` and create a directory named `tau`.
-3. Paste the downloaded files into `.obsidian/plugins/tau/`.
-4. Reload Obsidian and enable **Tau** in your Community Plugins tab.
+1. Download the latest release assets from GitHub.
+2. Inside your Obsidian vault, navigate to `.obsidian/plugins/` and create a `tau` directory.
+3. Paste the downloaded files in there.
+4. Reload Obsidian and enable the plugin.
 
 ---
 
-## 📜 License
+## Privacy and Data Access
 
-MIT License. Built for historical researchers, world-builders, fiction writers, and knowledge archivists.
+Tau operates entirely inside your vault and makes zero network requests. It reads your frontmatter to build the timeline, lists image files only when you ask it to, and only writes to the frontmatter you explicitly change. Two basic display preferences are stored locally. That is it.
+
+---
+
+## License
+
+MIT License. Built for historical researchers, world-builders, and anyone else meticulously archiving time. 🙄

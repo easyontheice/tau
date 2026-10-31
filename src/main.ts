@@ -3,6 +3,7 @@ import { VaultAdapter, TimelineNode } from "./vault-adapter";
 import { TimelineCanvasRenderer, ViewportState } from "./timeline-canvas";
 import { NodeInspectorModal } from "./inspector";
 import { NodeEditorModal } from "./editor";
+import { type Frontmatter } from "./frontmatter";
 
 export const TIMELINE_VIEW_TYPE = "tau-timeline-view";
 
@@ -14,7 +15,7 @@ export default class tauPlugin extends Plugin {
 
     this.registerView(
       TIMELINE_VIEW_TYPE,
-      (leaf: WorkspaceLeaf) => new tauTimelineView(leaf, this) as ItemView
+      (leaf: WorkspaceLeaf) => new tauTimelineView(leaf, this)
     );
 
     this.addRibbonIcon("history", "Open Tau", () => {
@@ -150,7 +151,7 @@ export class tauTimelineView extends ItemView {
           item.setTitle(hit.imageUrl ? "Change image..." : "Assign image...").setIcon("image").onClick(() => {
             new ImageSuggestModal(this.app, (imageFile) => {
               const link = this.app.metadataCache.fileToLinktext(imageFile, hit.file.path, false);
-              void this.app.fileManager.processFrontMatter(hit.file, (fm) => {
+              void this.app.fileManager.processFrontMatter(hit.file, (fm: Frontmatter) => {
                 fm["image"] = `[[${link}]]`;
               });
               new Notice(`Image assigned to ${hit.title}`);
@@ -169,7 +170,7 @@ export class tauTimelineView extends ItemView {
                   new Notice("Please enter a positive number of pixels.");
                   return;
                 }
-                void this.app.fileManager.processFrontMatter(hit.file, (fm) => {
+                void this.app.fileManager.processFrontMatter(hit.file, (fm: Frontmatter) => {
                   if (trimmed === "") delete fm["image-width"];
                   else fm["image-width"] = num;
                 });
@@ -179,7 +180,7 @@ export class tauTimelineView extends ItemView {
 
           menu.addItem((item) => {
             item.setTitle("Remove image").setIcon("image-off").onClick(() => {
-              void this.app.fileManager.processFrontMatter(hit.file, (fm) => {
+              void this.app.fileManager.processFrontMatter(hit.file, (fm: Frontmatter) => {
                 delete fm["image"];
                 delete fm["image-width"];
               });
@@ -327,7 +328,7 @@ export class tauTimelineView extends ItemView {
               if (node.horizontalOffset !== curX || node.verticalOffset !== curY) {
                 node.horizontalOffset = curX;
                 node.verticalOffset = curY;
-                await this.app.fileManager.processFrontMatter(node.file, (fm) => {
+                await this.app.fileManager.processFrontMatter(node.file, (fm: Frontmatter) => {
                   fm["horizontal-offset"] = curX;
                   fm["vertical-offset"] = curY;
                 });
@@ -431,7 +432,7 @@ export class tauTimelineView extends ItemView {
           // World spans: line the successors up evenly across the predecessor's width
           if (predecessor.kind === "span") this.layoutWorldSuccessors(predecessor);
 
-          void this.app.fileManager.processFrontMatter(predecessor.file, (fm) => {
+          void this.app.fileManager.processFrontMatter(predecessor.file, (fm: Frontmatter) => {
             if (nextSuccessors.length === 0) delete fm["successor"];
             else fm["successor"] = nextSuccessors.length === 1 ? nextSuccessors[0] : nextSuccessors;
           });
@@ -448,7 +449,7 @@ export class tauTimelineView extends ItemView {
         if (hit && !hit.isPhantom && hit.id !== this.pendingAlignNode.id) {
           const targetX = hit.horizontalOffset;
           this.pendingAlignNode.horizontalOffset = targetX;
-          void this.app.fileManager.processFrontMatter(this.pendingAlignNode.file, (fm) => {
+          void this.app.fileManager.processFrontMatter(this.pendingAlignNode.file, (fm: Frontmatter) => {
             fm["horizontal-offset"] = targetX;
           });
           new Notice(`Aligned horizontally to ${hit.title}`);
@@ -462,7 +463,7 @@ export class tauTimelineView extends ItemView {
 
       if (this.pendingChildNode) {
         if (hit && !hit.isPhantom && hit.id !== this.pendingChildNode.id) {
-          void this.app.fileManager.processFrontMatter(this.pendingChildNode.file, (fm) => {
+          void this.app.fileManager.processFrontMatter(this.pendingChildNode.file, (fm: Frontmatter) => {
             fm["child-of"] = hit.title;
           });
           new Notice(`Linked to ${hit.title}`);
@@ -475,10 +476,10 @@ export class tauTimelineView extends ItemView {
 
       if (this.pendingBranchNode) {
         if (hit && !hit.isPhantom && hit.id !== this.pendingBranchNode.id) {
-          void this.app.fileManager.processFrontMatter(this.pendingBranchNode.file, (fm) => {
+          void this.app.fileManager.processFrontMatter(this.pendingBranchNode.file, (fm: Frontmatter) => {
             const current = fm["branch-to"];
             if (Array.isArray(current)) {
-              if (!current.includes(hit.title)) fm["branch-to"].push(hit.title);
+              if (!current.includes(hit.title)) current.push(hit.title);
             } else if (typeof current === "string") {
               fm["branch-to"] = [current, hit.title];
             } else {
@@ -495,10 +496,10 @@ export class tauTimelineView extends ItemView {
 
       if (this.pendingInfluenceNode) {
         if (hit && !hit.isPhantom && hit.id !== this.pendingInfluenceNode.id) {
-          void this.app.fileManager.processFrontMatter(this.pendingInfluenceNode.file, (fm) => {
+          void this.app.fileManager.processFrontMatter(this.pendingInfluenceNode.file, (fm: Frontmatter) => {
             const current = fm["influence-to"];
             if (Array.isArray(current)) {
-              if (!current.includes(hit.title)) fm["influence-to"].push(hit.title);
+              if (!current.includes(hit.title)) current.push(hit.title);
             } else if (typeof current === "string") {
               fm["influence-to"] = [current, hit.title];
             } else {
@@ -515,7 +516,7 @@ export class tauTimelineView extends ItemView {
 
       if (this.pendingMeasureNode) {
         if (hit && !hit.isPhantom && hit.id !== this.pendingMeasureNode.id) {
-          void this.app.fileManager.processFrontMatter(this.pendingMeasureNode.file, (fm) => {
+          void this.app.fileManager.processFrontMatter(this.pendingMeasureNode.file, (fm: Frontmatter) => {
             fm["measure-to"] = hit.title;
           });
           new Notice(`Measuring distance to ${hit.title}`);
@@ -650,7 +651,7 @@ export class tauTimelineView extends ItemView {
       const offset = predecessor.horizontalOffset + (index - (targets.length - 1) / 2) * slice;
       if (target.horizontalOffset === offset) return;
       target.horizontalOffset = offset;
-      void this.app.fileManager.processFrontMatter(target.file, (fm) => {
+      void this.app.fileManager.processFrontMatter(target.file, (fm: Frontmatter) => {
         fm["horizontal-offset"] = Math.round(offset);
       });
     });
@@ -757,7 +758,7 @@ class CsvImportModal extends Modal {
 
     new Setting(contentEl)
       .setName("Destination folder")
-      .setDesc("Folder where new markdown files will be created")
+      .setDesc("Folder where new Markdown files will be created")
       .addText((t) => {
         t.setValue(this.targetFolder).onChange((v) => (this.targetFolder = v.trim()));
       });
@@ -863,7 +864,7 @@ class CsvImportModal extends Modal {
 
       const existingFile = this.app.vault.getAbstractFileByPath(filePath);
 
-      const updateFm = (fm: Record<string, unknown>) => {
+      const updateFm = (fm: Frontmatter) => {
         fm["timeline"] = r["timeline"] || "main";
         if (r["timeline-kind"]) fm["timeline-kind"] = r["timeline-kind"];
         if (r["start-date"]) fm["start-date"] = r["start-date"];

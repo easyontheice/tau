@@ -1,4 +1,5 @@
-import { App, Modal, Setting, Notice, TFile, type FrontMatterCache } from "obsidian";
+import { App, Modal, Setting, Notice, TFile } from "obsidian";
+import { type Frontmatter, fmText, fmListText } from "./frontmatter";
 import { TimelineNode } from "./vault-adapter";
 
 export class NodeEditorModal extends Modal {
@@ -25,36 +26,36 @@ export class NodeEditorModal extends Modal {
         cls: "tau-modal-title"
     });
 
-    let fm: FrontMatterCache = {};
+    let fm: Frontmatter = {};
     if (!isNew) {
       fm = (this.target as TimelineNode).rawFrontmatter;
     }
 
     this.formData = {
-      "title": fm["title"] || (!isNew ? (this.target as TimelineNode).title : ""),
-      "timeline-kind": fm["timeline-kind"] || "event",
+      "title": fmText(fm["title"]) || (!isNew ? (this.target as TimelineNode).title : ""),
+      "timeline-kind": fmText(fm["timeline-kind"]) || "event",
       "global-event": (fm["global-event"] === true || fm["global-event"] === "true") ? "true" : "false",
-      "start-date": fm["start-date"] || fm["date"] || "",
-      "end-date": fm["end-date"] || "",
-      "color": fm["color"] || "",
-      "title-color": fm["title-color"] || "#000000",
-      "date-color": fm["date-color"] || "", 
-      "text-direction": fm["text-direction"] || "", 
-      "border-style": fm["border-style"] || "none",
-      "importance": fm["importance"]?.toString() || "",
-      "image": fm["image"] || "",
-      "image-width": fm["image-width"]?.toString() || "",
-      "child-of": fm["child-of"] || "",
-      "successor": Array.isArray(fm["successor"]) ? fm["successor"].join(", ") : String(fm["successor"] ?? ""), 
-      "branch-to": Array.isArray(fm["branch-to"]) ? fm["branch-to"].join(", ") : (fm["branch-to"] || ""),
-      "influence-to": Array.isArray(fm["influence-to"]) ? fm["influence-to"].join(", ") : (fm["influence-to"] || ""),
-      "measure-to": fm["measure-to"] || "",
-      "time-travel": fm["time-travel"] || "",
-      "coordinates": fm["coordinates"] || "",
-      "horizontal-offset": fm["horizontal-offset"]?.toString() || "",
-      "vertical-offset": fm["vertical-offset"]?.toString() || "",
-      "span-width": fm["span-width"]?.toString() || "",
-      "span-height-offset": fm["span-height-offset"]?.toString() || "",
+      "start-date": fmText(fm["start-date"]) || fmText(fm["date"]) || "",
+      "end-date": fmText(fm["end-date"]) || "",
+      "color": fmText(fm["color"]) || "",
+      "title-color": fmText(fm["title-color"]) || "#000000",
+      "date-color": fmText(fm["date-color"]) || "", 
+      "text-direction": fmText(fm["text-direction"]) || "", 
+      "border-style": fmText(fm["border-style"]) || "none",
+      "importance": fmText(fm["importance"]) || "",
+      "image": fmText(fm["image"]) || "",
+      "image-width": fmText(fm["image-width"]) || "",
+      "child-of": fmText(fm["child-of"]) || "",
+      "successor": fmListText(fm["successor"]), 
+      "branch-to": fmListText(fm["branch-to"]),
+      "influence-to": fmListText(fm["influence-to"]),
+      "measure-to": fmText(fm["measure-to"]) || "",
+      "time-travel": fmText(fm["time-travel"]) || "",
+      "coordinates": fmText(fm["coordinates"]) || "",
+      "horizontal-offset": fmText(fm["horizontal-offset"]) || "",
+      "vertical-offset": fmText(fm["vertical-offset"]) || "",
+      "span-width": fmText(fm["span-width"]) || "",
+      "span-height-offset": fmText(fm["span-height-offset"]) || "",
     };
 
     this.initialSuccessor = this.formData["successor"];
@@ -91,7 +92,7 @@ export class NodeEditorModal extends Modal {
       t.setValue(this.formData["end-date"]).onChange(v => this.formData["end-date"] = v);
     });
 
-    new Setting(contentEl).setName("Coordinates").setDesc("latitude, longitude").addText(t => {
+    new Setting(contentEl).setName("Coordinates").setDesc("Latitude, longitude").addText(t => {
       t.setValue(this.formData["coordinates"]).onChange(v => this.formData["coordinates"] = v);
     });
 
@@ -213,7 +214,7 @@ export class NodeEditorModal extends Modal {
   }
 
   async saveNode() {
-    await this.app.fileManager.processFrontMatter(this.file, (fm) => {
+    await this.app.fileManager.processFrontMatter(this.file, (fm: Frontmatter) => {
       const form = this.formData;
       
       const writeOrDelete = (key: string, val: string | null) => {

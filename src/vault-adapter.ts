@@ -1,4 +1,5 @@
-import { App, TFile, Notice, type FrontMatterCache } from "obsidian";
+import { App, TFile, Notice } from "obsidian";
+import { type Frontmatter, fmText, fmArray } from "./frontmatter";
 import {
   normalizeHistoricalDate,
   historicalDateRange,
@@ -40,7 +41,7 @@ export type TimelineNode = {
   description: string | null;
   startDateDisplay: string; 
   endDateDisplay: string | null; 
-  rawFrontmatter: FrontMatterCache;
+  rawFrontmatter: Frontmatter;
   isPhantom?: boolean; 
   isGlobal: boolean; 
   importance: number; 
@@ -136,10 +137,10 @@ export class VaultAdapter {
 
     for (const file of files) {
       const cache = this.app.metadataCache.getFileCache(file);
-      const fm = cache?.frontmatter;
+      const fm: Frontmatter | undefined = cache?.frontmatter;
       if (!fm) continue;
 
-      const timelineId = fm["timeline"] ?? fm["timeline-id"] ?? "main";
+      const timelineId = fmText(fm["timeline"]) ?? fmText(fm["timeline-id"]) ?? "main";
       if (timelineId !== targetTimelineId) continue;
 
       const rawStart = fm["start-date"] ?? fm["date"];
@@ -152,16 +153,16 @@ export class VaultAdapter {
       const startRange = historicalDateRange(startDate);
       const endRange = endDate ? historicalDateRange(endDate) : undefined;
 
-      const kind: TimelineKind = fm["timeline-kind"] ?? (endDate ? "span" : "event");
-      const title = fm["title"] ?? file.basename;
+      const kind = (fmText(fm["timeline-kind"]) as TimelineKind | undefined) ?? (endDate ? "span" : "event");
+      const title = fmText(fm["title"]) ?? file.basename;
 
       const isGlobal = fm["global-event"] === true || fm["global-event"] === "true";
       const importance = Number(fm["importance"] ?? 0);
       
       const textDirection = fm["text-direction"] === "horizontal" ? "horizontal" : "vertical";
       
-      const rawBorder = fm["border-style"];
-      const borderStyle = ["solid", "dashed", "none"].includes(rawBorder) ? rawBorder : null;
+      const rawBorder = fmText(fm["border-style"]);
+      const borderStyle = rawBorder === "solid" || rawBorder === "dashed" || rawBorder === "none" ? rawBorder : null;
 
       const rawBranch = fm["branch-to"];
       let branchTo: string[] = [];
@@ -181,7 +182,7 @@ export class VaultAdapter {
 
       let imageUrl: string | null = null;
       // Accept "file.png", "[[file.png]]", "![[file.png]]", "[[file.png|alias]]" or a list property
-      const rawImage: unknown = Array.isArray(fm["image"]) ? fm["image"][0] : fm["image"];
+      const rawImage: unknown = Array.isArray(fm["image"]) ? fmArray(fm["image"])[0] : fm["image"];
       if (typeof rawImage === "string" && rawImage.trim()) {
         const cleanName = rawImage.trim().replace(/^!/, "").replace(/[[\]]/g, "").split("|")[0].trim();
         const imgFile = this.app.metadataCache.getFirstLinkpathDest(cleanName, file.path);
@@ -193,12 +194,12 @@ export class VaultAdapter {
       const rawImageWidth = fm["image-width"];
       const imageWidth = rawImageWidth ? Number(rawImageWidth) : null;
 
-      const coordinates = fm["coordinates"] ? String(fm["coordinates"]) : null;
+      const coordinates = fmText(fm["coordinates"]) || null;
 
       const startString = formatHistoricalDate(startDate);
       const endString = endDate ? formatHistoricalDate(endDate) : null;
 
-      let description = fm["description"] ?? null;
+      let description: string | null = fmText(fm["description"]) ?? null;
       if (!description) {
         const content = await this.app.vault.cachedRead(file);
         const bodyContent = content.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
@@ -227,14 +228,14 @@ export class VaultAdapter {
         horizontalOffset: Number(fm["horizontal-offset"] ?? 0),
         spanWidth: fm["span-width"] ? Number(fm["span-width"]) : undefined,
         spanHeightOffset: Number(fm["span-height-offset"] ?? 0), 
-        childOf: fm["child-of"] ? String(fm["child-of"]) : null, 
+        childOf: fmText(fm["child-of"]) || null, 
         successors: parseSuccessors(fm["successor"]),
         branchTo,
         influenceTo,
-        measureTo: fm["measure-to"] ? String(fm["measure-to"]) : null, 
-        color: fm["color"] ?? null,
-        titleColor: fm["title-color"] ?? null,
-        dateColor: fm["date-color"] ?? null, 
+        measureTo: fmText(fm["measure-to"]) || null, 
+        color: fmText(fm["color"]) ?? null,
+        titleColor: fmText(fm["title-color"]) ?? null,
+        dateColor: fmText(fm["date-color"]) ?? null, 
         startDateJson: JSON.stringify(startDate),
         endDateJson: endDate ? JSON.stringify(endDate) : null,
         startAbsMin: startRange.absoluteMin,
@@ -254,7 +255,7 @@ export class VaultAdapter {
         coordinates,
       });
 
-      const timeTravel = fm["time-travel"];
+      const timeTravel = fmText(fm["time-travel"]);
       if (timeTravel) {
         const offsetYears = parseTimeTravel(timeTravel);
         if (offsetYears !== null && offsetYears !== 0) {
@@ -304,7 +305,7 @@ export class VaultAdapter {
 
   async saveNodeOffsets(file: TFile, horizontalOffset: number, verticalOffset: number): Promise<void> {
     try {
-      await this.app.fileManager.processFrontMatter(file, (fm) => {
+      await this.app.fileManager.processFrontMatter(file, (fm: Frontmatter) => {
         fm["horizontal-offset"] = Math.round(horizontalOffset);
         fm["vertical-offset"] = Math.round(verticalOffset);
       });

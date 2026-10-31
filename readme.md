@@ -10,6 +10,8 @@ Tau changes that paradigm. Powered by a custom, hardware-accelerated **HTML5 Can
 
 *Special credit to [UsefulCharts](https://usefulcharts.com/) for inspiring the visual language and layout architecture of this engine.*
 
+![Screenshot](img/inspector_1.png)
+
 ---
 
 ## 🏗️ Architectural Overview & Core Concepts

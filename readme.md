@@ -1,5 +1,7 @@
 # Tau (τ) ⏳
 
+![Screenshot](img/example_1.png)
+
 **An infinite, canvas-based vertical timeline and cartographic engine for Obsidian.**
 
 Tau was born out of sheer frustration with the current landscape of timeline plugins. Most existing tools are fundamentally rigid—forcing non-linear historical events into strictly linear grids, horizontal scroll corridors, or markdown tables with zero spatial freedom. They collapse when handling overlapping eras, parallel civilizations, or complex causal relationships.

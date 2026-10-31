@@ -1,0 +1,127 @@
+.tau-view-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--background-primary);
+}
+
+.tau-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+
+.tau-canvas:active {
+  cursor: grabbing;
+}
+
+/* Inspector Overlay */
+.tau-inspector-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(4px);
+}
+
+.tau-inspector-panel {
+  width: 700px;
+  max-width: 90vw;
+  height: 80vh;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.tau-inspector-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--background-secondary);
+}
+
+.tau-inspector-header h2 {
+  margin: 0;
+  font-size: 1.4em;
+  color: var(--text-normal);
+}
+
+.tau-inspector-close {
+  background: none;
+  border: none;
+  font-size: 1.2em;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.tau-inspector-close:hover {
+  color: var(--text-normal);
+}
+
+.tau-inspector-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex-grow: 1;
+}
+
+.tau-inspector-card {
+  margin-top: 20px;
+  padding: 16px;
+  background-color: var(--background-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.tau-wiki-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.tau-wiki-thumb {
+  width: 100px;
+  height: auto;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.tau-map-container {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.tau-map-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.9em;
+}
+
+/* Tooltip Styles */
+.tau-tooltip {
+  position: fixed;
+  z-index: 2000;
+  background-color: var(--background-primary);
+  border: 1px transparent;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: var(--text-normal);
+  font-size: 0.9em;
+  max-width: 250px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  white-space: pre-wrap;
+}

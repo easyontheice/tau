@@ -1,0 +1,9 @@
+{
+  "id": "τ",
+  "name": "Tau",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "An infinitely zoomable vertical timeline plugin for Obsidian with free 2D movement, orthogonal tethers, and rich note inspectors.",
+  "author": "easyontheice",
+  "isDesktopOnly": false
+}

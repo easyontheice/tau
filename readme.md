@@ -4,11 +4,15 @@
 
 **An infinite, canvas-based vertical timeline and cartographic engine for Obsidian.**
 
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/easyontheice)
+
 Tau was born out of sheer frustration with the current landscape of timeline plugins. Most existing tools are fundamentally rigid—forcing non-linear historical events into strictly linear grids, horizontal scroll corridors, or markdown tables with zero spatial freedom. They collapse when handling overlapping eras, parallel civilizations, or complex causal relationships.
 
 Tau changes that paradigm. Powered by a custom, hardware-accelerated **HTML5 Canvas renderer**, Tau treats your vault as an interactive historical atlas. Drag events anywhere across an infinite vertical coordinate space, map diverging dynasties with dynastic lane packing, visualize causal influence with vector links, and never write raw YAML again.
 
 *Special credit to [UsefulCharts](https://usefulcharts.com/) for inspiring the visual language and layout architecture of this engine.*
+
+![Screenshot](img/inspector_1.png)
 
 ---
 

@@ -7,7 +7,7 @@ tau is free, but my rent is not 🙄. If this plugin saved you from wrestling wi
 
 **An infinite, canvas-based vertical timeline and cartographic engine for Obsidian.**
 
-Tau exists mostly because the current landscape of timeline plugins is an inflexible mess. Most tools force non-linear historical events into rigid grids or markdown tables that fall apart the second you introduce overlapping eras or parallel civilizations.
+tau exists mostly because the current landscape of timeline plugins is an inflexible mess. Most tools force non-linear historical events into rigid grids or markdown tables that fall apart the second you introduce overlapping eras or parallel civilizations.
 
 This engine uses a hardware-accelerated HTML5 Canvas to treat your vault like an actual spatial atlas. You can drag events around an infinite vertical coordinate space, pack diverging dynasties into lanes, and link causal events without having to write raw YAML manually. It is also obnoxiously fast—handling 4000-event timelines without lagging, which is likely more history than you actually need to map.
 
@@ -21,7 +21,7 @@ To view a note, double-click on it. To edit its properties, right-click. A basic
 
 ## Architectural Overview and Core Concepts
 
-Tau operates on a decoupled data model.
+tau operates on a decoupled data model.
 
 **The Source of Truth**
 Your standard Obsidian Markdown notes hold the data. All coordinates, color tokens, and metadata live directly inside the note's YAML frontmatter.
@@ -36,7 +36,7 @@ Dragging or linking nodes on the canvas immediately updates your markdown frontm
 
 ## Complete YAML Frontmatter Schema
 
-Every note intended for Tau needs `timeline: main` (or whatever you named your timeline instance). Below is a fully loaded example showing every supported property so you know exactly what you are dealing with.
+Every note intended for tau needs `timeline: main` (or whatever you named your timeline instance). Below is a fully loaded example showing every supported property so you know exactly what you are dealing with.
 
 ```yaml
 ---
@@ -108,7 +108,7 @@ Content written here is completely preserved. Double-clicking this node on the t
 
 ## Supported Node Geometries
 
-Tau adapts its rendering pipelines based on the semantic role of the note.
+tau adapts its rendering pipelines based on the semantic role of the note.
 
 **Point Events** (`event`)
 Discrete historical moments. Rendered as a circular milestone connected to the left time spine. You can promote it to a global event to draw a dividing line across the entire screen.
@@ -136,7 +136,7 @@ Floating annotations for citations or context blocks, complete with configurable
 
 Unlike traditional tools that collapse overlapping dates into an unreadable mess, you actually control where things go here.
 
-Click and drag any node. When you let go, Tau writes the exact pixel offset directly into your frontmatter. If your timeline is a disaster, right-click and run Auto-scatter all events. The engine calculates chronological spacing and disperses everything across 50 lanes, fixing your visual pileups in a single pass.
+Click and drag any node. When you let go, tau writes the exact pixel offset directly into your frontmatter. If your timeline is a disaster, right-click and run Auto-scatter all events. The engine calculates chronological spacing and disperses everything across 50 lanes, fixing your visual pileups in a single pass.
 
 ### Advanced Lineage and Linking
 
@@ -149,7 +149,7 @@ This is essentially a relational network graph mapped onto chronological space.
 
 ### Dynastic Succession and Assimilation
 
-When plotting successive dynasties in the left legend, overlaps are inevitable. If you specify a successor, Tau bypasses standard collision rules and locks the successor into the exact same column as its predecessor. If they overlap in time, the engine generates a hatched integration zone blending both colors, because transitions of power are rarely clean.
+When plotting successive dynasties in the left legend, overlaps are inevitable. If you specify a successor, tau bypasses standard collision rules and locks the successor into the exact same column as its predecessor. If they overlap in time, the engine generates a hatched integration zone blending both colors, because transitions of power are rarely clean.
 
 ### Dual-Modal Interface
 
@@ -210,7 +210,7 @@ Right-click the canvas or a node to access the command HUD.
 
 1. Open Obsidian Settings and go to Community Plugins.
 2. Ensure they are enabled, then click Browse.
-3. Search for Tau.
+3. Search for tau.
 4. Click Install, then Enable.
 
 ### Manual Installation
@@ -224,7 +224,7 @@ Right-click the canvas or a node to access the command HUD.
 
 ## Privacy and Data Access
 
-Tau operates entirely inside your vault and makes zero network requests. It reads your frontmatter to build the timeline, lists image files only when you ask it to, and only writes to the frontmatter you explicitly change. Two basic display preferences are stored locally. That is it.
+tau operates entirely inside your vault and makes zero network requests. It reads your frontmatter to build the timeline, lists image files only when you ask it to, and only writes to the frontmatter you explicitly change. Two basic display preferences are stored locally. That is it.
 
 ---
 

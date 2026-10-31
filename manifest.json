@@ -1,7 +1,7 @@
 {
   "id": "tau",
   "name": "tau",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "minAppVersion": "1.14.5",
   "description": "An infinitely zoomable vertical timeline plugin, inspired by usefulcharts, with free 2D movement, orthogonal tethers, spans, eras, regions, time measurement, and rich note inspectors.",
   "author": "easyontheice",

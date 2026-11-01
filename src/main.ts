@@ -4,14 +4,27 @@ import { TimelineCanvasRenderer, ViewportState } from "./timeline-canvas";
 import { NodeInspectorModal } from "./inspector";
 import { NodeEditorModal } from "./editor";
 import { type Frontmatter } from "./frontmatter";
+import { DEFAULT_SETTINGS, TauSettingTab, type TauSettings, clampDateSize, clampImportance, MIN_DATE_SIZE, MAX_DATE_SIZE } from "./settings";
+import { parseCsv, findUnknownPlaceholders, importCsvRecords, type ImportResult } from "./csv-import";
+import { assignRandomColors, paletteFor } from "./colors";
+import { pickCsvFile } from "./file-picker";
 
 export const TIMELINE_VIEW_TYPE = "tau-timeline-view";
 
 export default class tauPlugin extends Plugin {
   vaultAdapter!: VaultAdapter;
+  settings: TauSettings = { ...DEFAULT_SETTINGS };
+  private bulkOperations = 0;
+
+  /** True while a bulk import/recolour is writing notes; open timelines hold off reloading until it ends. */
+  get isBulkOperation(): boolean {
+    return this.bulkOperations > 0;
+  }
 
   async onload(): Promise<void> {
     this.vaultAdapter = new VaultAdapter(this.app);
+    await this.loadSettings();
+    this.addSettingTab(new TauSettingTab(this.app, this));
 
     this.registerView(
       TIMELINE_VIEW_TYPE,
@@ -34,13 +47,7 @@ export default class tauPlugin extends Plugin {
       id: "import-csv",
       name: "Import timeline nodes from CSV",
       callback: () => {
-        const leaves = this.app.workspace.getLeavesOfType(TIMELINE_VIEW_TYPE);
-        const view = leaves[0]?.view instanceof tauTimelineView ? leaves[0].view : undefined;
-        new CsvImportModal(this.app, async () => {
-          if (view) {
-            await view.reloadNodes();
-          }
-        }).open();
+        new CsvImportModal(this.app, this).open();
       },
     });
   }
@@ -56,6 +63,56 @@ export default class tauPlugin extends Plugin {
     }
 
     await workspace.revealLeaf(leaf);
+  }
+
+  async loadSettings(): Promise<void> {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<TauSettings> | null);
+  }
+
+  async saveSettings(): Promise<void> {
+    await this.saveData(this.settings);
+  }
+
+  /** Pushes display settings (date text sizes, importance boosts) to every open timeline and redraws it. */
+  applyDisplaySettings(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(TIMELINE_VIEW_TYPE)) {
+      if (leaf.view instanceof tauTimelineView) leaf.view.applyDisplaySettings();
+    }
+  }
+
+  /**
+   * Runs a batch of vault writes while open timelines hold off reloading, then lets them refresh
+   * once at the end. Used by CSV import, colour randomizing and auto-scatter.
+   */
+  async runBulk<T>(work: () => Promise<T>): Promise<T> {
+    this.bulkOperations++;
+    try {
+      return await work();
+    } finally {
+      this.bulkOperations--;
+      if (this.bulkOperations === 0) {
+        for (const leaf of this.app.workspace.getLeavesOfType(TIMELINE_VIEW_TYPE)) {
+          if (leaf.view instanceof tauTimelineView) leaf.view.requestReload();
+        }
+      }
+    }
+  }
+
+  /** Parses and imports a CSV. Returns null, after telling the user why, if nothing was imported. */
+  async importCsv(text: string, folderTemplate: string, onProgress?: (done: number, total: number) => void): Promise<ImportResult | null> {
+    const { headers, records } = parseCsv(text);
+    if (records.length === 0) {
+      new Notice("The CSV file is empty or has no data rows.");
+      return null;
+    }
+    const missing = findUnknownPlaceholders(folderTemplate, headers);
+    if (missing.length > 0) {
+      new Notice(`The destination folder uses ${missing.map((m) => `{{${m}}}`).join(", ")}, but the CSV has no column with that name.`);
+      return null;
+    }
+    const result = await this.runBulk(() => importCsvRecords(this.app, records, { folderTemplate, onProgress }));
+    new Notice(`Import complete: ${result.created} created, ${result.updated} updated.`);
+    return result;
   }
 }
 
@@ -76,6 +133,16 @@ export class tauTimelineView extends ItemView {
   private pendingInfluenceNode: TimelineNode | null = null; 
   private pendingAlignNode: TimelineNode | null = null; 
   private pendingSuccessorNode: TimelineNode | null = null; 
+
+  // Coalesce bursts of vault changes into a single reload. Never swap the node array out from
+  // under an in-progress drag, and wait while a bulk import/recolour is still writing notes.
+  readonly requestReload: () => void = debounce(() => {
+    if (this.isDragging || this.plugin.isBulkOperation) {
+      this.requestReload();
+      return;
+    }
+    void this.reloadNodes();
+  }, 300, true);
 
   constructor(leaf: WorkspaceLeaf, private plugin: tauPlugin) {
     super(leaf);
@@ -104,6 +171,7 @@ export class tauTimelineView extends ItemView {
     this.renderer = new TimelineCanvasRenderer(this.canvas, ctx, this.viewport, this.nodes);
     this.renderer.leftStripWidth = parseInt(String(this.app.loadLocalStorage("tau-left-width") || "200"));
     this.renderer.autoFitSpans = this.app.loadLocalStorage("tau-auto-fit-spans") !== "false";
+    this.applyDisplaySettings();
     
     await this.reloadNodes();
 
@@ -188,6 +256,17 @@ export class tauTimelineView extends ItemView {
           });
         }
         
+        const colorScope = this.renderer.selectedNodeIds.has(hit.id) && this.renderer.selectedNodeIds.size > 1
+          ? this.nodes.filter(n => this.renderer.selectedNodeIds.has(n.id))
+          : [hit];
+        if (colorScope.some(n => paletteFor(n) !== null)) {
+          menu.addItem((item) => {
+            item.setTitle(colorScope.length > 1 ? `Randomize colors of ${colorScope.length} selected nodes` : "Randomize color")
+              .setIcon("palette")
+              .onClick(() => this.randomizeColors(colorScope));
+          });
+        }
+
         menu.addSeparator();
 
         menu.addItem((item) => {
@@ -283,16 +362,27 @@ export class tauTimelineView extends ItemView {
         });
 
         menu.addItem((item) => {
+          item.setTitle("Span date text size...").setIcon("type").onClick(() => {
+            this.promptDateSize("spanDateSize", "Span date text size", "dates on spans");
+          });
+        });
+
+        menu.addItem((item) => {
+          item.setTitle("Left span date text size...").setIcon("type").onClick(() => {
+            this.promptDateSize("leftSpanDateSize", "Left span date text size", "dates on left spans");
+          });
+        });
+
+        menu.addItem((item) => {
           item.setTitle("Import nodes from CSV...").setIcon("file-up").onClick(() => {
-            new CsvImportModal(this.app, async () => {
-              await this.reloadNodes();
-            }).open();
+            new CsvImportModal(this.app, this.plugin).open();
           });
         });
 
         menu.addItem((item) => {
           item.setTitle("Auto-scatter all events").setIcon("list-restart").onClick(async () => {
             new Notice("Scattering timeline... Please wait.");
+            await this.plugin.runBulk(async () => {
             
             const events = this.nodes
               .filter(n => !n.isPhantom && n.kind !== "era" && n.kind !== "span-left" && n.kind !== "region")
@@ -337,8 +427,15 @@ export class tauTimelineView extends ItemView {
               if (i % 25 === 0 && i > 0) await new Promise(r => window.setTimeout(r, 10));
             }
             
+            });
             this.renderer.scheduleDraw();
             new Notice("Auto-scatter complete!");
+          });
+        });
+
+        menu.addItem((item) => {
+          item.setTitle("Randomize colors").setIcon("palette").onClick(() => {
+            this.randomizeColors(this.nodes);
           });
         });
       }
@@ -624,19 +721,68 @@ export class tauTimelineView extends ItemView {
     this.resizeObserver = new ResizeObserver(() => this.renderer.resize());
     this.resizeObserver.observe(this.canvas);
 
-    // Coalesce bursts of vault changes (multi-node drags, auto-scatter, external edits) into a
-    // single reload, and never swap the node array out from under an in-progress drag.
-    const requestReload: () => void = debounce(() => {
-      if (this.isDragging) {
-        requestReload();
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.requestReload()));
+    this.registerEvent(this.app.vault.on("delete", () => this.requestReload()));
+    this.registerEvent(this.app.vault.on("rename", () => this.requestReload()));
+  }
+
+  /** Copies the plugin's display settings onto the renderer and redraws. */
+  applyDisplaySettings(): void {
+    const settings = this.plugin.settings;
+    this.renderer.spanDateSize = clampDateSize(settings.spanDateSize, DEFAULT_SETTINGS.spanDateSize);
+    this.renderer.leftSpanDateSize = clampDateSize(settings.leftSpanDateSize, DEFAULT_SETTINGS.leftSpanDateSize);
+    this.renderer.eventImportance = clampImportance(settings.eventImportance, 0);
+    this.renderer.spanImportance = clampImportance(settings.spanImportance, 0);
+    this.renderer.leftSpanImportance = clampImportance(settings.leftSpanImportance, 0);
+    this.renderer.scheduleDraw();
+  }
+
+  /** Asks for a new date text size, saves it for the whole vault and updates every open timeline. */
+  private promptDateSize(key: "spanDateSize" | "leftSpanDateSize", title: string, what: string): void {
+    const current = String(this.plugin.settings[key]);
+    const help = `Font size in pixels for the ${what} (default ${DEFAULT_SETTINGS[key]}, from ${MIN_DATE_SIZE} to ${MAX_DATE_SIZE}). Applies to all of them at once.`;
+    new TextInputModal(this.app, title, help, current, (val) => {
+      const num = parseFloat(val);
+      if (isNaN(num) || num < MIN_DATE_SIZE || num > MAX_DATE_SIZE) {
+        new Notice(`Please enter a size from ${MIN_DATE_SIZE} to ${MAX_DATE_SIZE}.`);
         return;
       }
-      void this.reloadNodes();
-    }, 300, true);
+      this.plugin.settings[key] = num;
+      void this.plugin.saveSettings();
+      this.plugin.applyDisplaySettings();
+    }).open();
+  }
 
-    this.registerEvent(this.app.metadataCache.on("changed", () => requestReload()));
-    this.registerEvent(this.app.vault.on("delete", () => requestReload()));
-    this.registerEvent(this.app.vault.on("rename", () => requestReload()));
+  /**
+   * Gives nodes random palette colours (light for events and spans, dark for left spans) after
+   * confirming. Only the color property changes; title and date colours are left alone.
+   */
+  private randomizeColors(scope: TimelineNode[]): void {
+    const colors = assignRandomColors(scope, this.nodes);
+    if (colors.size === 0) {
+      new Notice("Only events, spans and left spans can be recolored (children that inherit their parent's color are skipped).");
+      return;
+    }
+    const message = colors.size === 1
+      ? "Give this node a random color? Its color property will be overwritten."
+      : `Give ${colors.size} nodes random colors? Their color property will be overwritten. Title and date colors are not changed.`;
+    new ConfirmModal(this.app, "Randomize colors", message, "Randomize", async () => {
+      const targets = this.nodes.filter((n) => colors.has(n.id));
+      for (const node of targets) node.color = colors.get(node.id) ?? node.color;
+      this.renderer.scheduleDraw();
+      await this.plugin.runBulk(async () => {
+        let done = 0;
+        for (const node of targets) {
+          const color = colors.get(node.id);
+          if (!color) continue;
+          await this.app.fileManager.processFrontMatter(node.file, (fm: Frontmatter) => {
+            fm["color"] = color;
+          });
+          if (++done % 25 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0));
+        }
+      });
+      new Notice(`Randomized ${targets.length} ${targets.length === 1 ? "color" : "colors"}.`);
+    }).open();
   }
 
   /** Spreads a world span's successors evenly across its width (one successor = same lane, as before). */
@@ -686,6 +832,35 @@ class ImageSuggestModal extends FuzzySuggestModal<TFile> {
 
   onChooseItem(file: TFile): void {
     this.onChoose(file);
+  }
+}
+
+class ConfirmModal extends Modal {
+  constructor(
+    app: App,
+    private heading: string,
+    private message: string,
+    private confirmText: string,
+    private onConfirm: () => void | Promise<void>
+  ) {
+    super(app);
+  }
+
+  onOpen() {
+    this.setTitle(this.heading);
+    this.contentEl.createEl("p", { text: this.message });
+    new Setting(this.contentEl)
+      .addButton((b) => b.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton((b) =>
+        b.setButtonText(this.confirmText).setDestructive().onClick(() => {
+          this.close();
+          void this.onConfirm();
+        })
+      );
+  }
+
+  onClose() {
+    this.contentEl.empty();
   }
 }
 
@@ -742,9 +917,8 @@ class TextInputModal extends Modal {
 
 class CsvImportModal extends Modal {
   private fileContent = "";
-  private targetFolder = "Timeline";
 
-  constructor(app: App, private onComplete: () => Promise<void>) {
+  constructor(app: App, private plugin: tauPlugin) {
     super(app);
   }
 
@@ -753,165 +927,58 @@ class CsvImportModal extends Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: "Import nodes into Tau" });
     contentEl.createEl("p", {
-      text: "Select a CSV file containing Tau schema columns. Existing notes with matching names will be safely updated without erasing note bodies.",
+      text: "Select a CSV file. Timeline columns are imported with the right types and any other column becomes a text property. Existing notes with matching names are updated without erasing note bodies. This import is also available in the plugin settings.",
     });
 
     new Setting(contentEl)
       .setName("Destination folder")
-      .setDesc("Folder where new Markdown files will be created")
+      .setDesc("Use {{column}} for subfolders, for example Timeline/{{region}}")
       .addText((t) => {
-        t.setValue(this.targetFolder).onChange((v) => (this.targetFolder = v.trim()));
+        t.setValue(this.plugin.settings.importFolder).onChange(async (v) => {
+          this.plugin.settings.importFolder = v.trim();
+          await this.plugin.saveSettings();
+        });
       });
 
     new Setting(contentEl)
       .setName("CSV file")
       .setDesc("Choose your .csv timeline dataset")
       .addButton((b) => {
-        b.setButtonText("Choose file").onClick(() => {
-          const input = createEl("input");
-          input.type = "file";
-          input.accept = ".csv,text/csv";
-          input.onchange = async () => {
-            const file = input.files?.[0];
-            if (file) {
-              this.fileContent = await file.text();
-              b.setButtonText(file.name);
-            }
-          };
-          input.click();
+        b.setButtonText("Choose file").onClick(async () => {
+          const file = await pickCsvFile(contentEl);
+          if (file) {
+            this.fileContent = await file.text();
+            b.setButtonText(file.name);
+          }
         });
       });
 
-    new Setting(contentEl)
-      .addButton((b) =>
-        b
-          .setButtonText("Start import")
-          .setCta()
-          .onClick(async () => {
-            if (!this.fileContent) {
-              new Notice("Please select a CSV file first.");
-              return;
-            }
-            b.setDisabled(true);
-            b.setButtonText("Importing...");
-            await this.processCsv();
+    const importSetting = new Setting(contentEl);
+    importSetting.addButton((b) =>
+      b
+        .setButtonText("Start import")
+        .setCta()
+        .onClick(async () => {
+          if (!this.fileContent) {
+            new Notice("Please select a CSV file first.");
+            return;
+          }
+          b.setDisabled(true);
+          b.setButtonText("Importing...");
+          const result = await this.plugin.importCsv(this.fileContent, this.plugin.settings.importFolder, (done, total) => {
+            importSetting.setDesc(`Importing ${done} of ${total} rows...`);
+          });
+          if (result) {
             this.close();
-          })
-      );
-  }
-
-  private parseCsv(text: string): Record<string, string>[] {
-    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length < 2) return [];
-
-    const parseLine = (line: string): string[] => {
-      const result: string[] = [];
-      let cur = "";
-      let inQuotes = false;
-      for (let i = 0; i < line.length; i++) {
-        const c = line[i];
-        if (c === '"') {
-          if (inQuotes && line[i + 1] === '"') {
-            cur += '"';
-            i++;
           } else {
-            inQuotes = !inQuotes;
+            b.setDisabled(false);
+            b.setButtonText("Start import");
           }
-        } else if (c === "," && !inQuotes) {
-          result.push(cur.trim());
-          cur = "";
-        } else {
-          cur += c;
-        }
-      }
-      result.push(cur.trim());
-      return result;
-    };
-
-    const headers = parseLine(lines[0]);
-    const records: Record<string, string>[] = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      const vals = parseLine(lines[i]);
-      const record: Record<string, string> = {};
-      headers.forEach((h, idx) => {
-        record[h] = vals[idx] ?? "";
-      });
-      records.push(record);
-    }
-    return records;
+        })
+    );
   }
 
-  private async processCsv() {
-    const records = this.parseCsv(this.fileContent);
-    if (records.length === 0) {
-      new Notice("CSV is empty or invalid.");
-      return;
-    }
-
-    const folderPath = this.targetFolder.replace(/^\/+|\/+$/g, "");
-    if (folderPath && !this.app.vault.getAbstractFileByPath(folderPath)) {
-      await this.app.vault.createFolder(folderPath);
-    }
-
-    let createdCount = 0;
-    let updatedCount = 0;
-
-    for (const r of records) {
-      const title = r["title"] || "Untitled Node";
-      const safeName = title.replace(/[/\\:*?"<>|]/g, "-").trim();
-      const filePath = folderPath ? `${folderPath}/${safeName}.md` : `${safeName}.md`;
-
-      const existingFile = this.app.vault.getAbstractFileByPath(filePath);
-
-      const updateFm = (fm: Frontmatter) => {
-        fm["timeline"] = r["timeline"] || "main";
-        if (r["timeline-kind"]) fm["timeline-kind"] = r["timeline-kind"];
-        if (r["start-date"]) fm["start-date"] = r["start-date"];
-        if (r["end-date"]) fm["end-date"] = r["end-date"];
-        if (r["color"]) fm["color"] = r["color"];
-        if (r["title-color"]) fm["title-color"] = r["title-color"];
-        if (r["date-color"]) fm["date-color"] = r["date-color"];
-        if (r["text-direction"]) fm["text-direction"] = r["text-direction"];
-        if (r["border-style"] && r["border-style"] !== "none") fm["border-style"] = r["border-style"];
-        if (r["coordinates"]) fm["coordinates"] = r["coordinates"];
-        if (r["child-of"]) fm["child-of"] = r["child-of"];
-        if (r["successor"]) {
-          const successors = r["successor"].split(",").map((s) => s.trim()).filter(Boolean);
-          fm["successor"] = successors.length === 1 ? successors[0] : successors;
-        }
-        if (r["image"]) fm["image"] = r["image"];
-        if (r["measure-to"]) fm["measure-to"] = r["measure-to"];
-
-        if (r["global-event"] === "true") fm["global-event"] = true;
-
-        const numKeys = ["importance", "horizontal-offset", "vertical-offset", "span-width", "span-height-offset", "image-width"];
-        numKeys.forEach((k) => {
-          const val = parseFloat(r[k]);
-          if (!isNaN(val) && (k !== "importance" || val !== 0)) fm[k] = val;
-        });
-
-        const listKeys = ["branch-to", "influence-to"];
-        listKeys.forEach((k) => {
-          if (r[k]) {
-            fm[k] = r[k].split(",").map((s) => s.trim()).filter(Boolean);
-          }
-        });
-      };
-
-      if (existingFile instanceof TFile) {
-        await this.app.fileManager.processFrontMatter(existingFile, updateFm);
-        updatedCount++;
-      } else {
-        const desc = r["description"] || "";
-        const content = `---\ntitle: "${title}"\n---\n\n# ${title}\n\n${desc}\n`;
-        const newFile = await this.app.vault.create(filePath, content);
-        await this.app.fileManager.processFrontMatter(newFile, updateFm);
-        createdCount++;
-      }
-    }
-
-    new Notice(`Import complete: ${createdCount} created, ${updatedCount} updated.`);
-    await this.onComplete();
+  onClose() {
+    this.contentEl.empty();
   }
 }

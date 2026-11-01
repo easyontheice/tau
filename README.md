@@ -11,7 +11,7 @@ tau exists mostly because the current landscape of timeline plugins is an inflex
 
 This engine uses a hardware-accelerated HTML5 Canvas to treat your vault like an actual spatial atlas. You can drag events around an infinite vertical coordinate space, pack diverging dynasties into lanes, and link causal events without having to write raw YAML manually. It is also obnoxiously fast—handling 4000-event timelines without lagging, which is likely more history than you actually need to map.
 
-To view a note, double-click on it. To edit its properties, right-click. A basic CSV importer is included, and you can find a template in the datasets folder.
+To view a note, double-click on it. To edit its properties, right-click. A CSV importer is included (see **Importing CSV Data** below), and you can find a template in the datasets folder.
 
 *Special credit to [UsefulCharts](https://usefulcharts.com/) for inspiring the layout architecture of this engine.*
 
@@ -163,6 +163,17 @@ Assign an importance integer to your nodes. Setting it to -1 flags the item as l
 
 For long spans that stretch beyond the screen, the title text pins itself to the viewport boundary so you do not forget what you are looking at while scrolling. You can also perfectly align a node's horizontal position with another via the context menu.
 
+**Randomize colors** (right-click the canvas, or a node or selection) gives events and spans random light colors and left spans random dark colors from a built-in palette. Every color is used once before any repeats, linked successors and parents never share a color, and only the `color` property changes: `title-color` and `date-color` are left alone. Children that inherit their parent's color, notes, eras and regions are skipped.
+
+### Importing CSV Data
+
+Go to **Settings > Community plugins > tau**, choose a destination folder and a CSV file, then select **Import CSV**. The same import is in the right-click menu and the command palette.
+
+* **Subfolders from a column:** use `{{column}}` in the destination, for example `Timeline/{{region}}`. Rows with a blank value go in the parent folder.
+* **Every column is kept:** timeline columns (dates, colors, links, offsets) get the right types, and any other column becomes a text property with the same name. A `description` column becomes a `description` property and is also written into the body of new notes, so it shows in the double-click reader.
+* **Safe updates:** if a note with the same name already exists in that folder, only the CSV's non-blank values are merged into its properties. Note bodies are never changed.
+* **Fast on big files:** open timelines pause reloading during the import and refresh once at the end. Quoted cells may contain commas and line breaks.
+
 ---
 
 ## Context Menu Cheat Sheet
@@ -185,7 +196,12 @@ Right-click the canvas or a node to access the command HUD.
 | **Measure to...** | Node | Raycasts to calculate and display real-time chronological distances. |
 | **New node** | Canvas | Generates a blank note template and opens the editor HUD. |
 | **Set left strip width** | Canvas | Adjusts the pixel width of the left dynastic legend. |
+| **Span date text size...** | Canvas | Sets the font size of the dates on all spans at once (also in the plugin settings). |
+| **Left span date text size...** | Canvas | Sets the font size of the dates on all left spans at once (also in the plugin settings). |
 | **Auto-scatter all events** | Canvas | Automatically disperses overlapping events into readable lanes. |
+| **Randomize colors** | Canvas | Gives every event, span and left span a random palette color (asks first). |
+| **Randomize color(s)** | Node | Same, for the clicked node or the current selection. |
+| **Import nodes from CSV...** | Canvas | Opens the CSV importer (also in the plugin settings). |
 | **Show/hide minor nodes** | Canvas | Hides or reveals all nodes with negative importance. |
 | **Show/hide display toggles** | Canvas | Independent display switches for gridlines, spines, and dates. |
 | **Enable/disable span auto-fit** | Canvas | Toggles whether ribbons automatically grow to fit their text. |

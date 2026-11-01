@@ -1,6 +1,6 @@
 {
   "name": "tau",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "description": "An infinitely zoomable vertical timeline plugin, inspired by usefulcharts, with free 2D movement, orthogonal tethers, spans, eras, regions, time measurement, and rich note inspectors.",
   "main": "main.js",
   "scripts": {

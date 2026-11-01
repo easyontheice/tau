@@ -5,7 +5,7 @@ const SPAN_LABEL_PADDING_ALONG = 10;
 const SPAN_LABEL_PADDING_ACROSS = 4;
 // Gap between the title lettering (baseline) and the date lettering (cap height) on spans (screen px)
 const SPAN_LABEL_LINE_GAP = 8;
-const SPAN_DATE_FONT_SIZE = 10;
+const DEFAULT_SPAN_DATE_SIZE = 10;
 
 export type ViewportState = {
   viewStart: number;
@@ -28,6 +28,12 @@ export class TimelineCanvasRenderer {
 
   public leftStripWidth = 200; // Hydrated from vault-scoped storage by the view on open
   public autoFitSpans = true;   // Grow world spans so their label always fits (hydrated by the view)
+  public spanDateSize = DEFAULT_SPAN_DATE_SIZE;     // Date text size on world spans (px, hydrated by the view)
+  public leftSpanDateSize = DEFAULT_SPAN_DATE_SIZE; // Date text size on left spans (px, hydrated by the view)
+  // Global importance (text size) boosts added to every node of a kind (hydrated by the view)
+  public eventImportance = 0;
+  public spanImportance = 0;
+  public leftSpanImportance = 0;
 
   private imageCache: Map<string, HTMLImageElement> = new Map(); 
   // subStart/subWidth: the slice of the column (0..1) a node occupies. 0/1 unless a predecessor split.
@@ -261,7 +267,7 @@ export class TimelineCanvasRenderer {
         this.ctx.globalAlpha = 0.08;
         this.ctx.fillRect(regX, startY, regWidth, regHeight);
         
-        const scale = 1 + (node.importance || 0);
+        const scale = this.textScale(node);
         const fontSize = Math.max(16, Math.round(48 * scale));
         const centerX = regX + regWidth / 2;
         const centerY = startY + regHeight / 2;
@@ -619,7 +625,7 @@ export class TimelineCanvasRenderer {
     this.ctx.lineWidth = isSelected ? 3 : 1;
     this.ctx.strokeRect(x, y1_box, colWidth, ribbonHeight);
 
-    const scale = 1 + (node.importance || 0);
+    const scale = this.textScale(node);
     const fontSize = Math.max(8, Math.round(12 * scale));
     const centerX = x + colWidth / 2;
     const isVertical = node.textDirection !== "horizontal";
@@ -646,15 +652,15 @@ export class TimelineCanvasRenderer {
     this.ctx.font = `bold ${fontSize}px ${font}`;
     
     if (this.showTitles) {
-      const titleOffset = this.showLeftSpanDates ? this.spanLabelOffsets(fontSize, font).titleOffset : 0;
+      const titleOffset = this.showLeftSpanDates ? this.spanLabelOffsets(fontSize, font, this.leftSpanDateSize).titleOffset : 0;
       this.ctx.fillText(node.title, 0, titleOffset);
     }
 
     this.ctx.fillStyle = node.dateColor ?? "rgba(255, 255, 255, 0.75)"; 
-    this.ctx.font = `10px ${font}`;
+    this.ctx.font = `${this.leftSpanDateSize}px ${font}`;
     
     if (this.showLeftSpanDates) {
-      const dateOffset = this.showTitles ? this.spanLabelOffsets(fontSize, font).dateOffset : 0;
+      const dateOffset = this.showTitles ? this.spanLabelOffsets(fontSize, font, this.leftSpanDateSize).dateOffset : 0;
       if (node.endDateDisplay && node.startDateDisplay !== node.endDateDisplay) {
         this.ctx.fillText(`${node.startDateDisplay} - ${node.endDateDisplay}`, 0, dateOffset);
       } else {
@@ -767,7 +773,7 @@ export class TimelineCanvasRenderer {
     const x = this.worldX(node.horizontalOffset);
     const y = anchorY + node.verticalOffset;
 
-    const scale = 1 + (node.importance || 0);
+    const scale = this.textScale(node);
     const fontSize = Math.max(8, Math.round(13 * scale));
     const fontWeight = isSelected ? "600" : "normal";
     const fontString = `${fontWeight} ${fontSize}px ${font}`;
@@ -808,7 +814,7 @@ export class TimelineCanvasRenderer {
     const y = anchorY + node.verticalOffset;
     const width = this.canvas.clientWidth;
 
-    const scale = 1 + (node.importance || 0);
+    const scale = this.textScale(node);
     const fontSize = Math.max(8, Math.round(13 * scale));
     const fontWeight = isSelected ? "600" : "normal";
     const fontString = `${fontWeight} ${fontSize}px ${font}`;
@@ -897,7 +903,7 @@ export class TimelineCanvasRenderer {
     y1_box -= fit.extraHeight / 2;
     ribbonHeight += fit.extraHeight;
 
-    const scale = 1 + (node.importance || 0);
+    const scale = this.textScale(node);
     const fontSize = Math.max(8, Math.round(12 * scale));
 
     this.ctx.fillStyle = color;
@@ -959,15 +965,15 @@ export class TimelineCanvasRenderer {
     this.ctx.font = `bold ${fontSize}px ${font}`;
     
     if (this.showTitles) {
-      const titleOffset = this.showSpanDates ? this.spanLabelOffsets(fontSize, font).titleOffset : 0;
+      const titleOffset = this.showSpanDates ? this.spanLabelOffsets(fontSize, font, this.spanDateSize).titleOffset : 0;
       this.ctx.fillText(node.title, 0, titleOffset);
     }
 
-    this.ctx.fillStyle = node.dateColor ?? "#f5eedc"; 
-    this.ctx.font = `10px ${font}`;
+    this.ctx.fillStyle = node.dateColor ?? "#1c1917";
+    this.ctx.font = `${this.spanDateSize}px ${font}`;
     
     if (this.showSpanDates) {
-      const dateOffset = this.showTitles ? this.spanLabelOffsets(fontSize, font).dateOffset : 0;
+      const dateOffset = this.showTitles ? this.spanLabelOffsets(fontSize, font, this.spanDateSize).dateOffset : 0;
       if (node.endDateDisplay && node.startDateDisplay !== node.endDateDisplay) {
         this.ctx.fillText(`${node.startDateDisplay} - ${node.endDateDisplay}`, 0, dateOffset);
       } else {
@@ -987,7 +993,7 @@ export class TimelineCanvasRenderer {
     const none = { extraWidth: 0, extraHeight: 0 };
     if (!this.autoFitSpans || (!this.showTitles && !this.showSpanDates)) return none;
 
-    const scale = 1 + (node.importance || 0);
+    const scale = this.textScale(node);
     const fontSize = Math.max(8, Math.round(12 * scale));
 
     // Longest line, measured along the text direction
@@ -998,7 +1004,7 @@ export class TimelineCanvasRenderer {
       textLength = Math.max(textLength, this.ctx.measureText(node.title).width);
     }
     if (this.showSpanDates) {
-      this.ctx.font = `10px ${font}`;
+      this.ctx.font = `${this.spanDateSize}px ${font}`;
       const dateText = node.endDateDisplay && node.startDateDisplay !== node.endDateDisplay
         ? `${node.startDateDisplay} - ${node.endDateDisplay}`
         : node.startDateDisplay;
@@ -1010,8 +1016,8 @@ export class TimelineCanvasRenderer {
     // Thickness of the stacked lines, measured across the text direction (symmetric about the centre)
     let textThickness: number;
     if (this.showTitles && this.showSpanDates) {
-      const { titleOffset, dateOffset } = this.spanLabelOffsets(fontSize, font);
-      textThickness = 2 * Math.max(Math.abs(titleOffset - fontSize / 2), Math.abs(dateOffset + SPAN_DATE_FONT_SIZE / 2));
+      const { titleOffset, dateOffset } = this.spanLabelOffsets(fontSize, font, this.spanDateSize);
+      textThickness = 2 * Math.max(Math.abs(titleOffset - fontSize / 2), Math.abs(dateOffset + this.spanDateSize / 2));
     } else {
       textThickness = this.showTitles ? fontSize : 10;
     }
@@ -1026,6 +1032,19 @@ export class TimelineCanvasRenderer {
       extraWidth: Math.max(0, needWidth - width),
       extraHeight: Math.max(0, needHeight - height),
     };
+  }
+
+  /**
+   * Text size multiplier for a node: 1 + its own importance + the global importance for its kind.
+   * Only text size uses the global boost; minor-node hiding and draw order still use the note's
+   * own importance value.
+   */
+  private textScale(node: TimelineNode): number {
+    const boost = node.kind === "event" ? this.eventImportance
+      : node.kind === "span" ? this.spanImportance
+      : node.kind === "span-left" ? this.leftSpanImportance
+      : 0;
+    return 1 + (node.importance || 0) + boost;
   }
 
   /** Successor nodes in the order they are listed, de-duplicated. */
@@ -1068,11 +1087,11 @@ export class TimelineCanvasRenderer {
    * between the title baseline and the top of the date digits is SPAN_LABEL_LINE_GAP, and the
    * two-line block stays centred on the anchor point.
    */
-  private spanLabelOffsets(fontSize: number, font: string): { titleOffset: number, dateOffset: number } {
+  private spanLabelOffsets(fontSize: number, font: string, dateSize: number): { titleOffset: number, dateOffset: number } {
     const m = this.getLetterMetrics(font);
-    const centreGap = m.baseBelow * fontSize + SPAN_LABEL_LINE_GAP + m.capAbove * SPAN_DATE_FONT_SIZE;
+    const centreGap = m.baseBelow * fontSize + SPAN_LABEL_LINE_GAP + m.capAbove * dateSize;
     const blockTop = -m.capAbove * fontSize;
-    const blockBottom = centreGap + m.baseBelow * SPAN_DATE_FONT_SIZE;
+    const blockBottom = centreGap + m.baseBelow * dateSize;
     const titleOffset = -(blockTop + blockBottom) / 2;
     return { titleOffset, dateOffset: titleOffset + centreGap };
   }

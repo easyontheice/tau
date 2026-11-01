@@ -1,4 +1,4 @@
-import { App, Modal, Setting, Notice, TFile } from "obsidian";
+import { App, ColorComponent, Modal, Setting, Notice, TFile } from "obsidian";
 import { type Frontmatter, fmText, fmListText } from "./frontmatter";
 import { TimelineNode } from "./vault-adapter";
 
@@ -6,6 +6,9 @@ export class NodeEditorModal extends Modal {
   private formData: Record<string, string> = {};
   private bodyContent = "";
   private initialSuccessor = "";
+  // Text/date colours are only written when the user actually changes them, so an unset colour
+  // keeps following the timeline's default for the node's kind.
+  private editedColors = new Set<string>();
   private file: TFile;
 
   constructor(app: App, private target: TimelineNode | TFile, private onSuccess: () => void) {
@@ -38,7 +41,7 @@ export class NodeEditorModal extends Modal {
       "start-date": fmText(fm["start-date"]) || fmText(fm["date"]) || "",
       "end-date": fmText(fm["end-date"]) || "",
       "color": fmText(fm["color"]) || "",
-      "title-color": fmText(fm["title-color"]) || "#000000",
+      "title-color": fmText(fm["title-color"]) || "",
       "date-color": fmText(fm["date-color"]) || "", 
       "text-direction": fmText(fm["text-direction"]) || "", 
       "border-style": fmText(fm["border-style"]) || "none",
@@ -102,13 +105,10 @@ export class NodeEditorModal extends Modal {
       c.setValue(this.formData["color"] || "#1c1917").onChange(v => this.formData["color"] = v);
     });
 
-    new Setting(contentEl).setName("Text color").addColorPicker(c => {
-      c.setValue(this.formData["title-color"]).onChange(v => this.formData["title-color"] = v);
-    });
-
-    new Setting(contentEl).setName("Date color").setDesc("Leave blank for default colors").addColorPicker(c => {
-      c.setValue(this.formData["date-color"]).onChange(v => this.formData["date-color"] = v);
-    });
+    // Unset text colours show what the timeline actually draws for this kind of node
+    const textDefaults = defaultTextColors(this.formData["timeline-kind"]);
+    this.addTextColorSetting(contentEl, "title-color", "Text color", textDefaults.title);
+    this.addTextColorSetting(contentEl, "date-color", "Date color", textDefaults.date);
 
     new Setting(contentEl).setName("Text direction").addDropdown(d => {
       d.addOption("", "Default engine value");
@@ -213,6 +213,28 @@ export class NodeEditorModal extends Modal {
         }));
   }
 
+  /** A colour picker for a text colour, plus a reset button that returns it to the default. */
+  private addTextColorSetting(containerEl: HTMLElement, key: "title-color" | "date-color", name: string, fallback: string): void {
+    let picker: ColorComponent | undefined;
+    new Setting(containerEl)
+      .setName(name)
+      .setDesc("Shows the default for this kind of node until you pick a color.")
+      .addColorPicker((c) => {
+        picker = c;
+        c.setValue(pickerColor(this.formData[key], fallback)).onChange((v) => {
+          this.formData[key] = v;
+          this.editedColors.add(key);
+        });
+      })
+      .addExtraButton((b) =>
+        b.setIcon("rotate-ccw").setTooltip("Use default").onClick(() => {
+          this.formData[key] = "";
+          this.editedColors.add(key);
+          picker?.setValue(fallback);
+        })
+      );
+  }
+
   async saveNode() {
     await this.app.fileManager.processFrontMatter(this.file, (fm: Frontmatter) => {
       const form = this.formData;
@@ -227,8 +249,8 @@ export class NodeEditorModal extends Modal {
       writeOrDelete("start-date", form["start-date"]);
       writeOrDelete("end-date", form["end-date"]);
       writeOrDelete("color", form["color"]);
-      writeOrDelete("title-color", form["title-color"]);
-      writeOrDelete("date-color", form["date-color"]); 
+      if (this.editedColors.has("title-color")) writeOrDelete("title-color", form["title-color"]);
+      if (this.editedColors.has("date-color")) writeOrDelete("date-color", form["date-color"]); 
       writeOrDelete("text-direction", form["text-direction"]);
       writeOrDelete("border-style", form["border-style"]);
       writeOrDelete("image", form["image"]);
@@ -304,4 +326,24 @@ export class NodeEditorModal extends Modal {
   onClose() {
     this.contentEl.empty();
   }
+}
+
+/**
+ * Text colours the timeline draws when a node has no title-color / date-color of its own.
+ * Keep in sync with the fallbacks in timeline-canvas.ts.
+ */
+function defaultTextColors(kind: string): { title: string; date: string } {
+  if (kind === "span-left") return { title: "#f5eedc", date: "#ffffff" }; // dates are drawn as 75% white
+  if (kind === "span") return { title: "#1c1917", date: "#1c1917" };
+  if (kind === "region") return { title: "#78716c", date: "#57534e" };
+  return { title: "#1c1917", date: "#57534e" };
+}
+
+/** Colour pickers only accept #rrggbb: expand #rgb, and fall back for anything else (named colours, rgba...). */
+function pickerColor(value: string, fallback: string): string {
+  const v = value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(v)) return v;
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(v);
+  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  return fallback;
 }

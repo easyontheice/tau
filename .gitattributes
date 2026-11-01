@@ -1,1 +1,8 @@
 datasets/*.csv text eol=lf
+# Handle line endings automatically for text files
+* text=auto
+
+# Explicitly declare text files you want to always use LF (recommended for code)
+*.ts text eol=lf
+*.md text eol=lf
+*.json text eol=lf
